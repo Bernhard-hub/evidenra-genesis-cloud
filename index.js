@@ -2,11 +2,9 @@
  * EVIDENRA Genesis Cloud - Video Generation Engine
  * =================================================
  * Railway-deployed video creation service
- *
- * Endpoints:
- *   POST /create-video - Create new HeyGen video
- *   GET /status/:id    - Check video status
- *   GET /health        - Health check
+ * - 14 verschiedene Scripts (täglich rotierend)
+ * - Verschiedene Hintergrundbilder
+ * - Automatisches Aufräumen alter Videos
  */
 
 require('dotenv').config()
@@ -26,63 +24,225 @@ const supabase = createClient(
 )
 
 // ============================================
-// AVATARE (junge weibliche)
+// AVATARE MIT PASSENDEN STIMMEN
 // ============================================
-const AVATARS = [
-  { id: 'Abigail_expressive_2024112501', name: 'Abigail' },
-  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey' },
-  { id: 'Chloe_expressive_2024120201', name: 'Chloe' },
-  { id: 'Georgia_expressive_2024112701', name: 'Georgia' },
-  { id: 'Jin_expressive_2024112501', name: 'Jin' },
-  { id: 'Annie_expressive_public', name: 'Annie Blue' },
-  { id: 'Caroline_expressive_public', name: 'Caroline Yellow' },
-  { id: 'Amanda_in_Blue_Shirt_Front', name: 'Amanda' },
-  { id: 'Diana_public_20240315', name: 'Diana' },
-  { id: 'Lisa_public', name: 'Lisa' }
+const AVATARS_FEMALE = [
+  { id: 'Abigail_expressive_2024112501', name: 'Abigail', gender: 'female' },
+  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey', gender: 'female' },
+  { id: 'Chloe_expressive_2024120201', name: 'Chloe', gender: 'female' },
+  { id: 'Georgia_expressive_2024112701', name: 'Georgia', gender: 'female' },
+  { id: 'Jin_expressive_2024112501', name: 'Jin', gender: 'female' },
+  { id: 'Annie_expressive_public', name: 'Annie Blue', gender: 'female' },
+  { id: 'Caroline_expressive_public', name: 'Caroline Yellow', gender: 'female' },
+  { id: 'Amanda_in_Blue_Shirt_Front', name: 'Amanda', gender: 'female' },
+  { id: 'Diana_public_20240315', name: 'Diana', gender: 'female' },
+  { id: 'Lisa_public', name: 'Lisa', gender: 'female' }
 ]
 
-const VOICE_FEMALE = 'fb8c5c3f02854c57a4da182d4ed59467' // Ivy English
+const AVATARS_MALE = [
+  { id: 'Josh_lite_2_public', name: 'Josh', gender: 'male' },
+  { id: 'Wayne_20240711', name: 'Wayne', gender: 'male' },
+  { id: 'Tyler_public_lite1_20230601', name: 'Tyler', gender: 'male' },
+  { id: 'Edward_public_2_20240207', name: 'Edward', gender: 'male' },
+  { id: 'Alvin_expressive_public', name: 'Alvin', gender: 'male' },
+  { id: 'Bryan_expressive_public', name: 'Bryan', gender: 'male' }
+]
+
+// Alle Avatare kombiniert
+const AVATARS = [...AVATARS_FEMALE, ...AVATARS_MALE]
+
+// Stimmen passend zum Geschlecht
+const VOICES = {
+  female: 'fb8c5c3f02854c57a4da182d4ed59467', // Ivy (weiblich englisch)
+  male: '2f9fdbc8db6047c8b5a6278b1a6acfe1'    // Matthew (männlich englisch)
+}
 
 // ============================================
-// VIDEO SCRIPTS
+// HINTERGRUNDBILDER (Stock Images - frei nutzbar)
+// ============================================
+const BACKGROUNDS = [
+  { type: 'color', value: '#1a1a2e' },  // Dunkelblau
+  { type: 'color', value: '#0f0f23' },  // Fast Schwarz
+  { type: 'color', value: '#1e3a5f' },  // Navy
+  { type: 'color', value: '#2d1b4e' },  // Lila Dunkel
+  { type: 'color', value: '#0a2540' },  // Mitternachtsblau
+  { type: 'color', value: '#1a1a1a' },  // Anthrazit
+  { type: 'color', value: '#0d2137' },  // Tiefblau
+  { type: 'color', value: '#1f1135' },  // Violett
+]
+
+// ============================================
+// 14 VERSCHIEDENE SCRIPTS (TikTok-Style)
 // ============================================
 const SCRIPTS = {
-  founding: `Hello! I'm excited to introduce you to EVIDENRA - the leading AI-powered qualitative research tool.
+  // Tag 1: Thesis Struggle
+  thesis_struggle: `POV: You're drowning in interview transcripts at 2 AM...
 
-Right now, we're offering an exclusive 60% discount for our founding members. That's a massive saving on professional-grade research analysis.
+We've all been there. Hours of recordings, mountains of data, and no idea where to start.
 
-EVIDENRA helps you analyze interviews, focus groups, and documents up to 10 times faster than traditional methods. Our AI understands context, identifies themes, and generates insights automatically.
+But what if AI could analyze your interviews in minutes? EVIDENRA does exactly that. Upload your data, and watch themes emerge automatically.
 
-Don't miss this limited-time offer. Visit evidenra.com today and become a founding member!`,
+Founding members save 60%. Link in bio!`,
 
-  students: `Hey there, fellow researcher! Struggling with your thesis data analysis?
+  // Tag 2: Before/After
+  before_after: `Qualitative analysis: Expectation vs Reality.
 
-EVIDENRA is here to help. Our AI-powered tool makes qualitative research analysis simple and fast.
+Before EVIDENRA: Weeks of manual coding, sticky notes everywhere, impostor syndrome at its peak.
 
-Upload your interviews, and EVIDENRA automatically identifies themes, codes your data, and even helps write your findings section.
+After EVIDENRA: AI identifies themes in minutes. You focus on insights, not mechanics.
 
-Students get special pricing, and right now founding members save 60%. Visit evidenra.com and transform your research today!`,
+This is what they don't teach you in methods class. 60% off for founding members!`,
 
-  academic: `Qualitative research analysis is time-consuming. We know, because we've been there.
+  // Tag 3: Speed Run
+  speed_run: `Speed running my thesis data analysis...
 
-EVIDENRA uses advanced AI to analyze your interviews, focus groups, and documents with academic rigor. Our tool supports multiple methodologies including thematic analysis, grounded theory, and content analysis.
+Step 1: Upload 20 interview transcripts. Step 2: Watch EVIDENRA's AI work its magic. Step 3: Export a complete thematic analysis.
 
-Join leading researchers who trust EVIDENRA. Founding members save 60% - visit evidenra.com now.`
+Total time: 15 minutes instead of 15 days.
+
+Your advisor will think you're a genius. 60% founding member discount at evidenra.com!`,
+
+  // Tag 4: That Moment
+  that_moment: `That moment when your supervisor asks for your analysis progress...
+
+And you can actually show them a complete thematic map with evidence-based coding.
+
+EVIDENRA turned my research chaos into organized insights. Game changer for qualitative researchers.
+
+Join as a founding member and save 60%!`,
+
+  // Tag 5: Glow Up
+  glow_up: `My research glow-up was switching to EVIDENRA.
+
+Before: Manual coding, existential dread, questioning my life choices.
+
+After: AI-powered analysis, clear themes, confidence in my findings.
+
+If you're struggling with qualitative data, this is your sign. 60% off for founding members!`,
+
+  // Tag 6: Storytime
+  storytime: `Storytime: How I analyzed 50 interviews in one weekend.
+
+Plot twist: I didn't pull an all-nighter. I used EVIDENRA.
+
+The AI identified themes I would have missed. It coded everything systematically. And I still had time for self-care.
+
+This tool is breaking the "suffering researcher" stereotype. 60% off now!`,
+
+  // Tag 7: Unpopular Opinion
+  unpopular_opinion: `Unpopular opinion: Manual qualitative coding is outdated.
+
+There, I said it. We have AI that can help us analyze data rigorously and efficiently.
+
+EVIDENRA doesn't replace your expertise - it amplifies it. You still interpret, you still think critically. But faster.
+
+Founding members save 60%. Future you will thank you!`,
+
+  // Tag 8: Day in Life
+  day_in_life: `A day in my life as a PhD student using EVIDENRA...
+
+Morning: Upload interview batch. Grab coffee.
+
+Afternoon: Review AI-generated themes. Refine codes.
+
+Evening: Export analysis, send to supervisor, actually have a life.
+
+This is research in 2024. Join 60% off!`,
+
+  // Tag 9: Rating
+  rating: `Rating qualitative analysis tools as a researcher...
+
+NVivo: Powerful but expensive. Learning curve? Steep.
+Atlas.ti: Good, but dated interface.
+Excel: Please no.
+EVIDENRA: AI-powered, intuitive, actually enjoyable.
+
+The winner is clear. 60% founding member discount!`,
+
+  // Tag 10: POV Advisor
+  pov_advisor: `POV: Your advisor reviewing your EVIDENRA analysis...
+
+"This thematic map is remarkably comprehensive."
+"Your coding is systematic and well-documented."
+"How did you finish so quickly?"
+
+The secret? AI-assisted analysis. Don't tell them. Just enjoy the praise. 60% off!`,
+
+  // Tag 11: Expectation Reality
+  expectation_reality: `Qualitative research: What I expected vs What I got.
+
+Expected: Meaningful insights, academic fulfillment.
+Got: Drowning in transcripts, crying over codes.
+
+Then I found EVIDENRA. Now I actually enjoy my research again.
+
+Save 60% as a founding member!`,
+
+  // Tag 12: Me vs The Person
+  me_vs_person: `Me vs The person who told me to "just use Excel" for qualitative analysis.
+
+Me: Using AI-powered EVIDENRA to identify themes automatically.
+Them: Still color-coding cells manually after 3 weeks.
+
+Work smarter, not harder. 60% off for founding members!`,
+
+  // Tag 13: Academic Community
+  academic_community: `To my fellow qualitative researchers struggling right now...
+
+You're not alone. Analysis is hard. Imposter syndrome is real.
+
+But tools like EVIDENRA exist to help, not replace you. Let AI handle the tedious parts while you focus on interpretation.
+
+Join our founding member community. 60% off!`,
+
+  // Tag 14: Founding Special
+  founding_special: `HUGE announcement for qualitative researchers!
+
+EVIDENRA is launching, and founding members get 60% OFF forever.
+
+This AI tool analyzes interviews, focus groups, and documents. It identifies themes, codes your data, and exports publication-ready results.
+
+Limited spots available. Visit evidenra.com now!`
+}
+
+// Script-Namen für tägliche Rotation
+const SCRIPT_KEYS = Object.keys(SCRIPTS)
+
+// Tägliches Script basierend auf Datum
+function getDailyScript() {
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
+  const index = dayOfYear % SCRIPT_KEYS.length
+  return SCRIPT_KEYS[index]
+}
+
+// Zufälliger Hintergrund
+function getRandomBackground() {
+  return BACKGROUNDS[Math.floor(Math.random() * BACKGROUNDS.length)]
 }
 
 // ============================================
 // HEYGEN API
 // ============================================
-async function createHeyGenVideo(topic = 'founding') {
+async function createHeyGenVideo(topic = 'auto') {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
 
+  // Wenn 'auto', nutze tägliches Script
+  const scriptKey = topic === 'auto' ? getDailyScript() : (SCRIPTS[topic] ? topic : getDailyScript())
+  const script = SCRIPTS[scriptKey]
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
-  const script = SCRIPTS[topic] || SCRIPTS.founding
+  const background = getRandomBackground()
 
-  console.log(`[Genesis] Creating video with avatar: ${avatar.name}`)
+  // WICHTIG: Stimme passend zum Avatar-Geschlecht!
+  const voice = VOICES[avatar.gender] || VOICES.female
+
+  console.log(`[Genesis] Creating video:`)
+  console.log(`  - Script: ${scriptKey}`)
+  console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
+  console.log(`  - Voice: ${avatar.gender}`)
+  console.log(`  - Background: ${background.value}`)
 
   const payload = JSON.stringify({
     video_inputs: [{
@@ -95,9 +255,10 @@ async function createHeyGenVideo(topic = 'founding') {
       voice: {
         type: 'text',
         input_text: script,
-        voice_id: VOICE_FEMALE,
+        voice_id: voice,
         speed: 1.0
-      }
+      },
+      background: background
     }],
     dimension: { width: 1920, height: 1080 },
     aspect_ratio: '16:9'
@@ -119,7 +280,12 @@ async function createHeyGenVideo(topic = 'founding') {
         try {
           const result = JSON.parse(data)
           if (result.data?.video_id) {
-            resolve({ success: true, videoId: result.data.video_id, avatar: avatar.name })
+            resolve({
+              success: true,
+              videoId: result.data.video_id,
+              avatar: avatar.name,
+              script: scriptKey
+            })
           } else {
             resolve({ success: false, error: result.error?.message || 'HeyGen error' })
           }
@@ -232,8 +398,7 @@ async function downloadAndUploadToSupabase(videoUrl, filename) {
   if (oldVideos && oldVideos.length > 0) {
     for (const video of oldVideos) {
       // Aus Storage loeschen
-      const storagePath = video.filename.includes('/') ? video.filename : `daily/${video.filename}`
-      await supabase.storage.from('videos').remove([storagePath])
+      await supabase.storage.from('videos').remove([video.filename])
       console.log(`[Genesis] Geloescht: ${video.filename}`)
     }
     // Aus Tabelle loeschen
@@ -260,12 +425,28 @@ async function downloadAndUploadToSupabase(videoUrl, filename) {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'EVIDENRA Genesis Cloud' })
+  res.json({
+    status: 'ok',
+    service: 'EVIDENRA Genesis Cloud',
+    todaysScript: getDailyScript(),
+    totalScripts: SCRIPT_KEYS.length
+  })
+})
+
+// Aktuelles tägliches Script anzeigen
+app.get('/today', (req, res) => {
+  const scriptKey = getDailyScript()
+  res.json({
+    date: new Date().toISOString().split('T')[0],
+    script: scriptKey,
+    text: SCRIPTS[scriptKey],
+    allScripts: SCRIPT_KEYS
+  })
 })
 
 // Create new video
 app.post('/create-video', async (req, res) => {
-  const { topic = 'founding', waitForCompletion = true } = req.body
+  const { topic = 'auto', waitForCompletion = true } = req.body
   const authHeader = req.headers.authorization
 
   // Simple API key auth
@@ -287,6 +468,7 @@ app.post('/create-video', async (req, res) => {
         success: true,
         videoId: result.videoId,
         avatar: result.avatar,
+        script: result.script,
         message: 'Video generation started. Use /status/:id to check progress.'
       })
     }
@@ -297,13 +479,14 @@ app.post('/create-video', async (req, res) => {
 
     // Upload to Supabase
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const filename = `genesis-${topic}-${timestamp}.mp4`
+    const filename = `genesis-${result.script}-${timestamp}.mp4`
     const supabaseUrl = await downloadAndUploadToSupabase(videoUrl, filename)
 
     res.json({
       success: true,
       videoId: result.videoId,
       avatar: result.avatar,
+      script: result.script,
       heygenUrl: videoUrl,
       supabaseUrl,
       filename
@@ -344,11 +527,15 @@ app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════╗
 ║  EVIDENRA Genesis Cloud                        ║
-║  Video Generation Engine                       ║
+║  Video Generation Engine v2.0                  ║
 ╠════════════════════════════════════════════════╣
 ║  Port: ${PORT}                                    ║
+║  Scripts: ${SCRIPT_KEYS.length} verschiedene                      ║
+║  Today: ${getDailyScript().padEnd(30)}    ║
+╠════════════════════════════════════════════════╣
 ║  Endpoints:                                    ║
 ║    POST /create-video - Create new video       ║
+║    GET  /today        - Today's script         ║
 ║    GET  /status/:id   - Check status           ║
 ║    GET  /videos       - List recent videos     ║
 ║    GET  /health       - Health check           ║
