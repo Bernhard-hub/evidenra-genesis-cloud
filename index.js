@@ -38,26 +38,19 @@ const supabase = createClient(
 // ============================================
 // AVATARE MIT PASSENDEN STIMMEN
 // ============================================
+// Standard HeyGen public avatars (verified working)
 const AVATARS_FEMALE = [
-  { id: 'Abigail_expressive_2024112501', name: 'Abigail', gender: 'female' },
-  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey', gender: 'female' },
-  { id: 'Chloe_expressive_2024120201', name: 'Chloe', gender: 'female' },
-  { id: 'Georgia_expressive_2024112701', name: 'Georgia', gender: 'female' },
-  { id: 'Jin_expressive_2024112501', name: 'Jin', gender: 'female' },
-  { id: 'Annie_expressive_public', name: 'Annie Blue', gender: 'female' },
-  { id: 'Caroline_expressive_public', name: 'Caroline Yellow', gender: 'female' },
-  { id: 'Amanda_in_Blue_Shirt_Front', name: 'Amanda', gender: 'female' },
-  { id: 'Diana_public_20240315', name: 'Diana', gender: 'female' },
-  { id: 'Lisa_public', name: 'Lisa', gender: 'female' }
+  { id: 'Anna_public_3_20240108', name: 'Anna', gender: 'female' },
+  { id: 'Daisy-inskirt-20220818', name: 'Daisy', gender: 'female' },
+  { id: 'Kristin_public_2_20240108', name: 'Kristin', gender: 'female' },
+  { id: 'Monica_public_3_20231218', name: 'Monica', gender: 'female' }
 ]
 
 const AVATARS_MALE = [
-  { id: 'Josh_lite_2_public', name: 'Josh', gender: 'male' },
+  { id: 'Josh_public_3_20240618', name: 'Josh', gender: 'male' },
+  { id: 'Tyler_public_pro_20230601', name: 'Tyler', gender: 'male' },
   { id: 'Wayne_20240711', name: 'Wayne', gender: 'male' },
-  { id: 'Tyler_public_lite1_20230601', name: 'Tyler', gender: 'male' },
-  { id: 'Edward_public_2_20240207', name: 'Edward', gender: 'male' },
-  { id: 'Alvin_expressive_public', name: 'Alvin', gender: 'male' },
-  { id: 'Bryan_expressive_public', name: 'Bryan', gender: 'male' }
+  { id: 'Eric_public_pro_20230608', name: 'Eric', gender: 'male' }
 ]
 
 // Alle Avatare kombiniert
