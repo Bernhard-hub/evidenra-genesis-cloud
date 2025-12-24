@@ -433,7 +433,10 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
   console.log(`[Genesis] Step 2: Creating HeyGen avatar video...`)
   const heygenResult = await createHeyGenVideo(topic)
   if (!heygenResult.success) {
-    throw new Error(heygenResult.error || 'HeyGen failed')
+    const errorMsg = typeof heygenResult.error === 'string'
+      ? heygenResult.error
+      : JSON.stringify(heygenResult.error) || 'HeyGen failed'
+    throw new Error(errorMsg)
   }
 
   // Auf HeyGen warten
@@ -576,7 +579,10 @@ app.post('/create-video', async (req, res) => {
     const result = await createHeyGenVideo(topic)
 
     if (!result.success) {
-      return res.status(500).json({ error: result.error })
+      const errorMsg = typeof result.error === 'string'
+        ? result.error
+        : JSON.stringify(result.error) || 'HeyGen error'
+      return res.status(500).json({ error: errorMsg })
     }
 
     if (!waitForCompletion) {
