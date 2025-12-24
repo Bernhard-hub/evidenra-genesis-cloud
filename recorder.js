@@ -70,8 +70,8 @@ const CURSOR_OVERLAY_JS = `
 class ScreenRecorder {
   constructor(options = {}) {
     this.outputDir = options.outputDir || '/tmp'
-    this.width = options.width || 1920
-    this.height = options.height || 1080
+    this.width = options.width || 1280
+    this.height = options.height || 720
     this.duration = options.duration || 30 // Sekunden
   }
 
