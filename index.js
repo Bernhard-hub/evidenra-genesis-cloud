@@ -222,12 +222,25 @@ async function downloadAndUploadToSupabase(videoUrl, filename) {
 
   const publicUrl = urlData.publicUrl
 
-  // Mark as latest in cloud_videos table
-  await supabase
+  // Alte Videos loeschen (nur letztes behalten)
+  console.log('[Genesis] Loesche alte Videos...')
+  const { data: oldVideos } = await supabase
     .from('cloud_videos')
-    .update({ is_latest: false })
+    .select('filename')
     .eq('is_latest', true)
 
+  if (oldVideos && oldVideos.length > 0) {
+    for (const video of oldVideos) {
+      // Aus Storage loeschen
+      const storagePath = video.filename.includes('/') ? video.filename : `daily/${video.filename}`
+      await supabase.storage.from('videos').remove([storagePath])
+      console.log(`[Genesis] Geloescht: ${video.filename}`)
+    }
+    // Aus Tabelle loeschen
+    await supabase.from('cloud_videos').delete().eq('is_latest', true)
+  }
+
+  // Neues Video als latest markieren
   await supabase
     .from('cloud_videos')
     .insert({
