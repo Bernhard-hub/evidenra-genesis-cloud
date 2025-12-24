@@ -1,21 +1,33 @@
 /**
- * EVIDENRA Genesis Cloud - Video Generation Engine
- * =================================================
+ * EVIDENRA Genesis Cloud - Video Generation Engine v2.0
+ * ======================================================
  * Railway-deployed video creation service
+ * - Screen Recording mit Playwright
+ * - HeyGen Avatar Videos
+ * - FFmpeg Compositing (Avatar über Hintergrund)
  * - 14 verschiedene Scripts (täglich rotierend)
- * - Verschiedene Hintergrundbilder
  * - Automatisches Aufräumen alter Videos
  */
 
 require('dotenv').config()
 const express = require('express')
 const https = require('https')
+const fs = require('fs')
+const path = require('path')
+const { execSync } = require('child_process')
 const { createClient } = require('@supabase/supabase-js')
+const ScreenRecorder = require('./recorder')
 
 const app = express()
 app.use(express.json())
 
 const PORT = process.env.PORT || 3000
+const TEMP_DIR = '/tmp/genesis'
+
+// Temp-Ordner erstellen
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true })
+}
 
 // Supabase Client
 const supabase = createClient(
@@ -352,6 +364,110 @@ async function waitForVideo(videoId, maxWaitMs = 600000) {
 }
 
 // ============================================
+// SCREEN RECORDING
+// ============================================
+async function recordBackground(demoType = 'demo') {
+  console.log(`[Genesis] Recording background video: ${demoType}`)
+  const recorder = new ScreenRecorder({ outputDir: TEMP_DIR })
+  return await recorder.record(demoType)
+}
+
+// ============================================
+// FFMPEG COMPOSITING
+// ============================================
+function downloadVideo(url, outputPath) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(outputPath)
+    https.get(url, (res) => {
+      res.pipe(file)
+      file.on('finish', () => {
+        file.close()
+        resolve(outputPath)
+      })
+    }).on('error', (err) => {
+      fs.unlink(outputPath, () => {})
+      reject(err)
+    })
+  })
+}
+
+function compositeVideos(backgroundPath, avatarPath, outputPath) {
+  console.log(`[Genesis] Compositing videos with FFmpeg...`)
+  console.log(`  Background: ${backgroundPath}`)
+  console.log(`  Avatar: ${avatarPath}`)
+  console.log(`  Output: ${outputPath}`)
+
+  // Avatar als Picture-in-Picture unten rechts
+  // Background als Hauptvideo, Avatar verkleinert überlagert
+  const ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
+    -filter_complex "[1:v]scale=480:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
+    -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
+    "${outputPath}"`
+
+  try {
+    execSync(ffmpegCmd, { stdio: 'pipe', timeout: 300000 })
+    console.log(`[Genesis] Composite video created: ${outputPath}`)
+    return outputPath
+  } catch (err) {
+    console.error(`[Genesis] FFmpeg error: ${err.message}`)
+    throw err
+  }
+}
+
+async function createFullVideo(topic = 'auto', demoType = 'demo') {
+  console.log(`[Genesis] === FULL VIDEO PIPELINE ===`)
+  console.log(`  Topic: ${topic}`)
+  console.log(`  Demo: ${demoType}`)
+
+  // Schritt 1: Hintergrund-Video aufnehmen
+  console.log(`[Genesis] Step 1: Recording background...`)
+  let backgroundPath
+  try {
+    backgroundPath = await recordBackground(demoType)
+  } catch (err) {
+    console.log(`[Genesis] Background recording failed, using color background`)
+    backgroundPath = null
+  }
+
+  // Schritt 2: HeyGen Avatar erstellen
+  console.log(`[Genesis] Step 2: Creating HeyGen avatar video...`)
+  const heygenResult = await createHeyGenVideo(topic)
+  if (!heygenResult.success) {
+    throw new Error(heygenResult.error || 'HeyGen failed')
+  }
+
+  // Auf HeyGen warten
+  console.log(`[Genesis] Step 3: Waiting for HeyGen...`)
+  const avatarUrl = await waitForVideo(heygenResult.videoId)
+
+  // Avatar herunterladen
+  const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.mp4`)
+  await downloadVideo(avatarUrl, avatarPath)
+  console.log(`[Genesis] Avatar downloaded: ${avatarPath}`)
+
+  let finalPath
+  if (backgroundPath && fs.existsSync(backgroundPath)) {
+    // Schritt 4: Videos kombinieren
+    console.log(`[Genesis] Step 4: Compositing videos...`)
+    finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
+    compositeVideos(backgroundPath, avatarPath, finalPath)
+
+    // Cleanup Hintergrund
+    fs.unlinkSync(backgroundPath)
+  } else {
+    // Nur Avatar (kein Hintergrund)
+    finalPath = avatarPath
+  }
+
+  return {
+    videoPath: finalPath,
+    avatarUrl,
+    avatar: heygenResult.avatar,
+    script: heygenResult.script
+  }
+}
+
+// ============================================
 // SUPABASE UPLOAD
 // ============================================
 async function downloadAndUploadToSupabase(videoUrl, filename) {
@@ -520,22 +636,104 @@ app.get('/videos', async (req, res) => {
   res.json(data)
 })
 
+// Create FULL video (Background Recording + Avatar + Composite)
+app.post('/create-full-video', async (req, res) => {
+  const { topic = 'auto', demoType = 'demo' } = req.body
+  const authHeader = req.headers.authorization
+
+  if (authHeader !== `Bearer ${process.env.GENESIS_API_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  console.log(`[Genesis] === FULL VIDEO REQUEST ===`)
+  console.log(`  Topic: ${topic}, Demo: ${demoType}`)
+
+  try {
+    // Full Pipeline: Record + Avatar + Composite
+    const result = await createFullVideo(topic, demoType)
+
+    // Upload final video to Supabase
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const filename = `genesis-full-${result.script}-${timestamp}.mp4`
+
+    console.log(`[Genesis] Uploading final video to Supabase...`)
+    const videoBuffer = fs.readFileSync(result.videoPath)
+
+    const { data, error } = await supabase.storage
+      .from('videos')
+      .upload(filename, videoBuffer, {
+        contentType: 'video/mp4',
+        upsert: true
+      })
+
+    if (error) {
+      throw new Error(`Supabase upload error: ${error.message}`)
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('videos')
+      .getPublicUrl(filename)
+
+    const supabaseUrl = urlData.publicUrl
+
+    // Alte Videos loeschen
+    const { data: oldVideos } = await supabase
+      .from('cloud_videos')
+      .select('filename')
+      .eq('is_latest', true)
+
+    if (oldVideos && oldVideos.length > 0) {
+      for (const video of oldVideos) {
+        await supabase.storage.from('videos').remove([video.filename])
+      }
+      await supabase.from('cloud_videos').delete().eq('is_latest', true)
+    }
+
+    await supabase.from('cloud_videos').insert({
+      filename,
+      url: supabaseUrl,
+      is_latest: true,
+      created_at: new Date().toISOString()
+    })
+
+    // Cleanup temp files
+    if (fs.existsSync(result.videoPath)) {
+      fs.unlinkSync(result.videoPath)
+    }
+
+    res.json({
+      success: true,
+      mode: 'full',
+      avatar: result.avatar,
+      script: result.script,
+      supabaseUrl,
+      filename
+    })
+
+  } catch (e) {
+    console.error('[Genesis] Full video error:', e)
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ============================================
 // START SERVER
 // ============================================
 app.listen(PORT, () => {
   console.log(`
-╔════════════════════════════════════════════════╗
-║  EVIDENRA Genesis Cloud                        ║
-║  Video Generation Engine v2.0                  ║
-╠════════════════════════════════════════════════╣
-║  Port: ${PORT}                                    ║
-║  Scripts: ${SCRIPT_KEYS.length} verschiedene                      ║
-║  Today: ${getDailyScript().padEnd(30)}    ║
-╠════════════════════════════════════════════════╣
-║  Endpoints:                                    ║
-║    POST /create-video - Create new video       ║
-║    GET  /today        - Today's script         ║
+╔════════════════════════════════════════════════════╗
+║  EVIDENRA Genesis Cloud v2.0                       ║
+║  Full Video Generation Engine                      ║
+╠════════════════════════════════════════════════════╣
+║  Port: ${PORT}                                        ║
+║  Scripts: ${SCRIPT_KEYS.length} verschiedene                          ║
+║  Avatars: ${AVATARS.length} (${AVATARS_FEMALE.length}F + ${AVATARS_MALE.length}M)                              ║
+║  Today: ${getDailyScript().padEnd(34)}    ║
+╠════════════════════════════════════════════════════╣
+║  Endpoints:                                        ║
+║    POST /create-video      - Avatar only           ║
+║    POST /create-full-video - BG + Avatar + FFmpeg  ║
+║    GET  /today             - Today's script        ║
 ║    GET  /status/:id   - Check status           ║
 ║    GET  /videos       - List recent videos     ║
 ║    GET  /health       - Health check           ║
