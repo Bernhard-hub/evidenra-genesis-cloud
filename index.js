@@ -798,7 +798,8 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     console.log(`[Genesis] Falling back to standard HeyGen video...`)
     const fallbackResult = await createHeyGenVideo(topic, false)
     if (!fallbackResult.success) {
-      throw new Error(fallbackResult.error || 'HeyGen fallback failed')
+      const errStr = typeof fallbackResult.error === 'string' ? fallbackResult.error : JSON.stringify(fallbackResult.error)
+      throw new Error(errStr || 'HeyGen fallback failed')
     }
     const avatarUrl = await waitForVideo(fallbackResult.videoId)
     return {
@@ -861,7 +862,8 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     console.log(`[Genesis] Falling back to standard HeyGen video...`)
     const fallbackResult = await createHeyGenVideo(topic, false)
     if (!fallbackResult.success) {
-      throw new Error(fallbackResult.error || 'Fallback failed')
+      const errFallback = typeof fallbackResult.error === 'string' ? fallbackResult.error : JSON.stringify(fallbackResult.error)
+      throw new Error(errFallback || 'Fallback failed')
     }
     const avatarUrl = await waitForVideo(fallbackResult.videoId)
     return {
@@ -878,7 +880,8 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
   const heygenResult = await createHeyGenVideoWithBackground(topic, backgroundUrl)
 
   if (!heygenResult.success) {
-    throw new Error(heygenResult.error || 'HeyGen video with background failed')
+    const errHeygen = typeof heygenResult.error === 'string' ? heygenResult.error : JSON.stringify(heygenResult.error)
+    throw new Error(errHeygen || 'HeyGen video with background failed')
   }
 
   // Schritt 5: Auf HeyGen warten
@@ -1192,7 +1195,8 @@ app.post('/create-full-video', async (req, res) => {
 
   } catch (e) {
     console.error('[Genesis] Full video error:', e)
-    res.status(500).json({ error: e.message })
+    const errorMsg = typeof e === 'string' ? e : (e?.message || JSON.stringify(e) || 'Unknown error')
+    res.status(500).json({ error: errorMsg })
   }
 })
 
