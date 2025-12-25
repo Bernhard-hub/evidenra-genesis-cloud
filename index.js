@@ -255,7 +255,7 @@ async function createHeyGenVideo(topic = 'auto') {
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: 1.5
+        scale: 1.0
       },
       voice: {
         type: 'text',
@@ -417,8 +417,10 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
   let backgroundPath
   try {
     backgroundPath = await recordBackground(demoType)
+    console.log(`[Genesis] Background recorded successfully: ${backgroundPath}`)
   } catch (err) {
-    console.log(`[Genesis] Background recording failed, using color background`)
+    console.error(`[Genesis] Background recording FAILED:`, err.message)
+    console.error(`[Genesis] Full error:`, err.stack)
     backgroundPath = null
   }
 

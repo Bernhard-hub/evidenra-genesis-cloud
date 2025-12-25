@@ -97,17 +97,20 @@ class ScreenRecorder {
 
     const page = await context.newPage()
 
-    // Cursor-Overlay hinzufügen
-    await page.addStyleTag({ content: CURSOR_OVERLAY_CSS })
-    await page.addScriptTag({ content: CURSOR_OVERLAY_JS })
-
     // Demo-Schritte ausführen
+    let firstNavDone = false
     for (const step of steps) {
       try {
         switch (step.action) {
           case 'goto':
             console.log(`[Recorder] Navigating to: ${step.url}`)
-            await page.goto(step.url, { waitUntil: 'networkidle', timeout: 30000 })
+            await page.goto(step.url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+            // Cursor-Overlay nach erster Navigation hinzufügen
+            if (!firstNavDone) {
+              await page.addStyleTag({ content: CURSOR_OVERLAY_CSS })
+              await page.addScriptTag({ content: CURSOR_OVERLAY_JS })
+              firstNavDone = true
+            }
             break
 
           case 'scroll':
