@@ -279,20 +279,27 @@ Tritt unserer Gründer-Community bei. 60% Rabatt!`
 const ALL_SCRIPTS = { ...SCRIPTS, ...SCRIPTS_DE }
 const SCRIPT_KEYS = Object.keys(ALL_SCRIPTS)
 
-// Demo-Typen für tägliche Rotation (passend zu Recorder)
-// Mix aus Website (evidenra.com) UND App (basic.evidenra.com)
+// Demo-Typen für tägliche Rotation
+// Website-Demos werden live aufgenommen, App-Demos nutzen pre-recorded Videos
 const DEMO_ROTATION = [
-  'homepage',           // Tag 1: Website Homepage
-  'app_basic',          // Tag 2: BASIC App
-  'features',           // Tag 3: Website Features
-  'app_basic_tour',     // Tag 4: BASIC App Tour
-  'pricing',            // Tag 5: Website Pricing
-  'app_basic_features', // Tag 6: BASIC App Features
-  'howitworks',         // Tag 7: Website How It Works
-  'reviews',            // Tag 8: Website Reviews
-  'app_pro',            // Tag 9: PRO App (fallback: Basic)
-  'app_ultimate'        // Tag 10: ULTIMATE App (fallback: Basic)
+  'homepage',      // Tag 1: Website Homepage (live)
+  'app_basic',     // Tag 2: BASIC App (pre-recorded)
+  'features',      // Tag 3: Website Features (live)
+  'app_pro',       // Tag 4: PRO App (pre-recorded)
+  'pricing',       // Tag 5: Website Pricing (live)
+  'app_ultimate',  // Tag 6: ULTIMATE App (pre-recorded)
+  'howitworks',    // Tag 7: Website How It Works (live)
+  'reviews'        // Tag 8: Website Reviews (live)
 ]
+
+// Pre-recorded App Demo Videos auf Supabase
+const APP_DEMO_VIDEOS = {
+  'app_basic': 'https://qkcukdgrqncahpvrrxtm.supabase.co/storage/v1/object/public/videos/app-demo-basic.mp4',
+  'app_pro': 'https://qkcukdgrqncahpvrrxtm.supabase.co/storage/v1/object/public/videos/app-demo-pro.mp4',
+  'app_ultimate': 'https://qkcukdgrqncahpvrrxtm.supabase.co/storage/v1/object/public/videos/app-demo-ultimate.mp4',
+  'app_basic_tour': 'https://qkcukdgrqncahpvrrxtm.supabase.co/storage/v1/object/public/videos/app-demo-basic.mp4',
+  'app_basic_features': 'https://qkcukdgrqncahpvrrxtm.supabase.co/storage/v1/object/public/videos/app-demo-basic.mp4'
+}
 
 // Tägliches Script basierend auf Datum
 function getDailyScript() {
@@ -659,11 +666,10 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
   const voice = VOICES[avatar.gender] || VOICES.female
 
-  // Avatar-Position: Rechts am UNTEREN BILDRAND
-  // y=0.5 = maximale Verschiebung nach unten
+  // Avatar-Position: Rechts unten (wie Original v3.0)
   const avatarScale = 0.45
   const avatarOffsetX = 0.35  // Nach rechts
-  const avatarOffsetY = 0.50  // Am unteren Bildrand!
+  const avatarOffsetY = 0.35  // Nach unten (Original-Position)
 
   console.log(`[Genesis] Creating video WITH VIDEO URL BACKGROUND:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
@@ -1281,70 +1287,76 @@ app.post('/create-multi-format', async (req, res) => {
   for (const format of formats) {
     console.log(`\n[Genesis] === Processing format: ${format} ===`)
     try {
-      // Schritt 1: Website im richtigen Aspect Ratio aufnehmen
-      const viewport = FORMAT_VIEWPORTS[format] || FORMAT_VIEWPORTS.youtube
-      console.log(`[Genesis] Recording website at ${viewport.width}x${viewport.height}...`)
-
-      const recorder = new ScreenRecorder({
-        outputDir: TEMP_DIR,
-        width: viewport.width,
-        height: viewport.height
-      })
-
-      let backgroundPath
-      try {
-        backgroundPath = await recorder.record(demoType)
-        console.log(`[Genesis] Background recorded: ${backgroundPath}`)
-      } catch (recErr) {
-        console.error(`[Genesis] Recording failed for ${format}:`, recErr.message)
-        results[format] = { success: false, error: `Recording failed: ${recErr.message}` }
-        continue
-      }
-
-      // Schritt 2: WebM zu MP4 konvertieren
-      const mp4Path = backgroundPath.replace('.webm', '.mp4')
-      try {
-        execSync(`ffmpeg -y -i "${backgroundPath}" -c:v libx264 -preset fast -crf 23 "${mp4Path}"`, {
-          stdio: 'pipe',
-          timeout: 120000
-        })
-        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
-        backgroundPath = mp4Path
-      } catch (convErr) {
-        console.log(`[Genesis] Conversion skipped or failed, using original`)
-      }
-
-      // Schritt 3: Background DIREKT zu HeyGen hochladen (nicht Supabase!)
-      console.log(`[Genesis] Uploading background directly to HeyGen...`)
-
       let heygenAssetUrl
-      try {
-        // Zuerst zu Supabase für public URL (HeyGen braucht URL)
+      let bgFilename = null  // Nur gesetzt wenn wir uploaden mussten
+
+      // Prüfe ob App-Demo (pre-recorded) oder Website (live recording)
+      if (APP_DEMO_VIDEOS[demoType]) {
+        // App-Demo: Nutze pre-recorded Video
+        heygenAssetUrl = APP_DEMO_VIDEOS[demoType]
+        console.log(`[Genesis] Using pre-recorded app demo: ${demoType}`)
+        console.log(`[Genesis] URL: ${heygenAssetUrl}`)
+      } else {
+        // Website-Demo: Live aufnehmen
+        const viewport = FORMAT_VIEWPORTS[format] || FORMAT_VIEWPORTS.youtube
+        console.log(`[Genesis] Recording website at ${viewport.width}x${viewport.height}...`)
+
+        const recorder = new ScreenRecorder({
+          outputDir: TEMP_DIR,
+          width: viewport.width,
+          height: viewport.height
+        })
+
+        let backgroundPath
+        try {
+          backgroundPath = await recorder.record(demoType)
+          console.log(`[Genesis] Background recorded: ${backgroundPath}`)
+        } catch (recErr) {
+          console.error(`[Genesis] Recording failed for ${format}:`, recErr.message)
+          results[format] = { success: false, error: `Recording failed: ${recErr.message}` }
+          continue
+        }
+
+        // WebM zu MP4 konvertieren
+        const mp4Path = backgroundPath.replace('.webm', '.mp4')
+        try {
+          execSync(`ffmpeg -y -i "${backgroundPath}" -c:v libx264 -preset fast -crf 23 "${mp4Path}"`, {
+            stdio: 'pipe',
+            timeout: 120000
+          })
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+          backgroundPath = mp4Path
+        } catch (convErr) {
+          console.log(`[Genesis] Conversion skipped or failed, using original`)
+        }
+
+        // Background zu Supabase hochladen für HeyGen URL
+        console.log(`[Genesis] Uploading background to Supabase...`)
         const bgTimestamp = Date.now()
-        const bgFilename = `background-${format}-${bgTimestamp}.mp4`
-        const videoBuffer = fs.readFileSync(backgroundPath)
-        console.log(`[Genesis] Background size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+        bgFilename = `background-${format}-${bgTimestamp}.mp4`
 
-        const { error: uploadError } = await supabase.storage
-          .from('videos')
-          .upload(bgFilename, videoBuffer, { contentType: 'video/mp4', upsert: true })
+        try {
+          const videoBuffer = fs.readFileSync(backgroundPath)
+          console.log(`[Genesis] Background size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
 
-        if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`)
+          const { error: uploadError } = await supabase.storage
+            .from('videos')
+            .upload(bgFilename, videoBuffer, { contentType: 'video/mp4', upsert: true })
 
-        const { data: urlData } = supabase.storage.from('videos').getPublicUrl(bgFilename)
-        heygenAssetUrl = urlData.publicUrl
-        console.log(`[Genesis] Background URL for HeyGen: ${heygenAssetUrl}`)
+          if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`)
 
-        // Lokale Datei löschen
-        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+          const { data: urlData } = supabase.storage.from('videos').getPublicUrl(bgFilename)
+          heygenAssetUrl = urlData.publicUrl
+          console.log(`[Genesis] Background URL for HeyGen: ${heygenAssetUrl}`)
 
-        // Background nach Video-Erstellung löschen (als Cleanup-Marker speichern)
-        results[format] = { bgFilename }
-      } catch (uploadErr) {
-        console.error(`[Genesis] Upload failed for ${format}:`, uploadErr.message)
-        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
-        results[format] = { success: false, error: `Upload failed: ${uploadErr.message}` }
-        continue
+          // Lokale Datei löschen
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+        } catch (uploadErr) {
+          console.error(`[Genesis] Upload failed for ${format}:`, uploadErr.message)
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+          results[format] = { success: false, error: `Upload failed: ${uploadErr.message}` }
+          continue
+        }
       }
 
       // Schritt 4: HeyGen Video MIT Background URL erstellen
@@ -1353,10 +1365,8 @@ app.post('/create-multi-format', async (req, res) => {
 
       if (!heygenResult.success) {
         results[format] = { success: false, error: heygenResult.error }
-        // Background löschen
-        if (results[format]?.bgFilename) {
-          await supabase.storage.from('videos').remove([results[format].bgFilename])
-        }
+        // Background löschen (nur wenn wir es hochgeladen haben)
+        if (bgFilename) await supabase.storage.from('videos').remove([bgFilename])
         continue
       }
 
@@ -1408,11 +1418,11 @@ app.post('/create-multi-format', async (req, res) => {
           }
         }
 
-        // Background-Video löschen (nicht mehr benötigt)
-        await supabase.storage.from('videos').remove([bgFilename])
+        // Background-Video löschen (nur wenn wir es hochgeladen haben)
+        if (bgFilename) await supabase.storage.from('videos').remove([bgFilename])
       } else {
         results[format] = { success: false, error: status.error || 'HeyGen timeout' }
-        await supabase.storage.from('videos').remove([bgFilename])
+        if (bgFilename) await supabase.storage.from('videos').remove([bgFilename])
       }
 
     } catch (e) {
