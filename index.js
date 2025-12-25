@@ -210,14 +210,82 @@ This AI tool analyzes interviews, focus groups, and documents. It identifies the
 Limited spots available. Visit evidenra.com now!`
 }
 
-// Script-Namen für tägliche Rotation
-const SCRIPT_KEYS = Object.keys(SCRIPTS)
+// DEUTSCHE SCRIPTS
+const SCRIPTS_DE = {
+  thesis_kampf: `POV: Du ertrinkst um 2 Uhr nachts in Interview-Transkripten...
 
-// Tägliches Script basierend auf Datum
+Kennen wir alle. Stundenlange Aufnahmen, Berge von Daten, und keine Ahnung wo anfangen.
+
+Aber was, wenn KI deine Interviews in Minuten analysieren könnte? EVIDENRA macht genau das. Lade deine Daten hoch und sieh zu, wie Themen automatisch entstehen.
+
+Gründungsmitglieder sparen 60%. Link in Bio!`,
+
+  vorher_nachher: `Qualitative Analyse: Erwartung vs Realität.
+
+Vor EVIDENRA: Wochen manuelles Kodieren, überall Post-its, Impostor-Syndrom auf Maximum.
+
+Nach EVIDENRA: KI identifiziert Themen in Minuten. Du konzentrierst dich auf Erkenntnisse, nicht Mechanik.
+
+Das lehrt man dir nicht im Methodenkurs. 60% für Gründungsmitglieder!`,
+
+  schnelldurchlauf: `Speedrun meiner Thesis-Datenanalyse...
+
+Schritt 1: 20 Interview-Transkripte hochladen. Schritt 2: EVIDENRAs KI bei der Arbeit zusehen. Schritt 3: Komplette thematische Analyse exportieren.
+
+Gesamtzeit: 15 Minuten statt 15 Tage.
+
+Dein Betreuer wird denken, du bist ein Genie. 60% Gründer-Rabatt auf evidenra.com!`,
+
+  dieser_moment: `Dieser Moment, wenn dein Betreuer nach dem Analysefortschritt fragt...
+
+Und du ihnen tatsächlich eine komplette thematische Karte mit evidenzbasierter Kodierung zeigen kannst.
+
+EVIDENRA hat mein Forschungschaos in organisierte Erkenntnisse verwandelt. Game Changer für qualitative Forscher.
+
+Werde Gründungsmitglied und spare 60%!`,
+
+  forschungs_glow_up: `Mein Forschungs-Glow-Up war der Wechsel zu EVIDENRA.
+
+Vorher: Manuelles Kodieren, existenzielle Verzweiflung, Lebensentscheidungen hinterfragen.
+
+Nachher: KI-gestützte Analyse, klare Themen, Vertrauen in meine Ergebnisse.
+
+Wenn du mit qualitativen Daten kämpfst, ist das dein Zeichen. 60% für Gründungsmitglieder!`,
+
+  werkzeug_bewertung: `Bewertung qualitativer Analyse-Tools als Forscher...
+
+NVivo: Mächtig aber teuer. Lernkurve? Steil.
+Atlas.ti: Gut, aber veraltete Oberfläche.
+Excel: Bitte nicht.
+EVIDENRA: KI-gestützt, intuitiv, macht tatsächlich Spaß.
+
+Der Gewinner ist klar. 60% Gründer-Rabatt!`,
+
+  akademische_gemeinschaft: `An alle qualitativen Forscher, die gerade kämpfen...
+
+Ihr seid nicht allein. Analyse ist schwer. Impostor-Syndrom ist real.
+
+Aber Tools wie EVIDENRA existieren, um zu helfen, nicht zu ersetzen. Lass KI die mühsamen Teile erledigen, während du dich auf Interpretation konzentrierst.
+
+Tritt unserer Gründer-Community bei. 60% Rabatt!`
+}
+
+// Script-Namen für tägliche Rotation
+const SCRIPT_KEYS_EN = Object.keys(SCRIPTS)
+const SCRIPT_KEYS_DE = Object.keys(SCRIPTS_DE)
+
+// Tägliches Script mit Sprachwechsel (gerade Tage = EN, ungerade = DE)
 function getDailyScript() {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
-  const index = dayOfYear % SCRIPT_KEYS.length
-  return SCRIPT_KEYS[index]
+  const isGerman = dayOfYear % 2 === 1 // Ungerade Tage = Deutsch
+
+  if (isGerman) {
+    const index = Math.floor(dayOfYear / 2) % SCRIPT_KEYS_DE.length
+    return { key: SCRIPT_KEYS_DE[index], lang: 'de', scripts: SCRIPTS_DE }
+  } else {
+    const index = Math.floor(dayOfYear / 2) % SCRIPT_KEYS_EN.length
+    return { key: SCRIPT_KEYS_EN[index], lang: 'en', scripts: SCRIPTS }
+  }
 }
 
 // Zufälliger Hintergrund
@@ -234,19 +302,39 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
 
-  // Wenn 'auto', nutze tägliches Script
-  const scriptKey = topic === 'auto' ? getDailyScript() : (SCRIPTS[topic] ? topic : getDailyScript())
-  const script = SCRIPTS[scriptKey]
+  // Wenn 'auto', nutze tägliches Script (mit Sprachwechsel DE/EN)
+  let scriptKey, script, lang
+  if (topic === 'auto') {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.scripts[daily.key]
+    lang = daily.lang
+  } else if (SCRIPTS[topic]) {
+    scriptKey = topic
+    script = SCRIPTS[topic]
+    lang = 'en'
+  } else if (SCRIPTS_DE[topic]) {
+    scriptKey = topic
+    script = SCRIPTS_DE[topic]
+    lang = 'de'
+  } else {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.scripts[daily.key]
+    lang = daily.lang
+  }
+
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
 
   // Greenscreen für Compositing, sonst normale Hintergrundfarbe
   const background = useGreenscreen ? GREENSCREEN_BACKGROUND : getRandomBackground()
 
-  // WICHTIG: Stimme passend zum Avatar-Geschlecht!
+  // WICHTIG: Stimme passend zum Avatar-Geschlecht UND Sprache!
+  // Deutsche Stimmen für DE, englische für EN
   const voice = VOICES[avatar.gender] || VOICES.female
 
   console.log(`[Genesis] Creating video:`)
-  console.log(`  - Script: ${scriptKey}`)
+  console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
   console.log(`  - Voice: ${avatar.gender}`)
   console.log(`  - Background: ${useGreenscreen ? 'GREENSCREEN' : background.value}`)

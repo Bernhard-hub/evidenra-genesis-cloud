@@ -8,31 +8,63 @@ const { chromium } = require('playwright')
 const path = require('path')
 const fs = require('fs')
 
-// Demo-Schritte für verschiedene App-Bereiche
+// Demo-Schritte für verschiedene App-Bereiche (VARIIERT TÄGLICH)
 const DEMO_STEPS = {
-  dashboard: [
+  // Homepage scrollen - Features zeigen
+  homepage: [
     { action: 'goto', url: 'https://evidenra.com', wait: 3000 },
-    { action: 'scroll', y: 300, wait: 1500 },
-    { action: 'scroll', y: 600, wait: 1500 },
-    { action: 'scroll', y: 0, wait: 1000 }
-  ],
-  features: [
-    { action: 'goto', url: 'https://evidenra.com/#features', wait: 2000 },
     { action: 'scroll', y: 400, wait: 2000 },
+    { action: 'scroll', y: 800, wait: 2000 },
+    { action: 'scroll', y: 1200, wait: 2000 },
+    { action: 'scroll', y: 0, wait: 1500 }
+  ],
+  // Features Sektion
+  features: [
+    { action: 'goto', url: 'https://evidenra.com/#features', wait: 2500 },
+    { action: 'scroll', y: 300, wait: 2000 },
+    { action: 'scroll', y: 600, wait: 2000 },
+    { action: 'scroll', y: 900, wait: 2000 }
+  ],
+  // Pricing Seite
+  pricing: [
+    { action: 'goto', url: 'https://evidenra.com/pricing', wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
+    { action: 'scroll', y: 800, wait: 2000 },
+    { action: 'scroll', y: 0, wait: 1500 }
+  ],
+  // App Login Seite
+  app_login: [
+    { action: 'goto', url: 'https://app.evidenra.com', wait: 3000 },
+    { action: 'scroll', y: 200, wait: 2000 },
+    { action: 'scroll', y: 0, wait: 2000 }
+  ],
+  // How it works
+  howitworks: [
+    { action: 'goto', url: 'https://evidenra.com/#how-it-works', wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
     { action: 'scroll', y: 800, wait: 2000 }
   ],
-  pricing: [
-    { action: 'goto', url: 'https://evidenra.com/pricing', wait: 2000 },
-    { action: 'scroll', y: 300, wait: 2000 },
-    { action: 'scroll', y: 600, wait: 1500 }
+  // Testimonials / Reviews
+  reviews: [
+    { action: 'goto', url: 'https://evidenra.com/#testimonials', wait: 2500 },
+    { action: 'scroll', y: 300, wait: 3000 },
+    { action: 'scroll', y: 600, wait: 2000 }
   ],
+  // Default Demo (altes Verhalten)
   demo: [
     { action: 'goto', url: 'https://evidenra.com', wait: 2000 },
-    { action: 'hover', selector: 'nav a', wait: 500 },
     { action: 'scroll', y: 500, wait: 2000 },
     { action: 'scroll', y: 1000, wait: 2000 },
     { action: 'scroll', y: 0, wait: 1000 }
   ]
+}
+
+// Tägliche Rotation der Demo-Typen
+const DEMO_ROTATION = ['homepage', 'features', 'pricing', 'app_login', 'howitworks', 'reviews']
+
+function getDailyDemoType() {
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
+  return DEMO_ROTATION[dayOfYear % DEMO_ROTATION.length]
 }
 
 // Cursor-Overlay CSS (gelber Cursor)
