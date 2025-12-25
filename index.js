@@ -55,10 +55,10 @@ const AVATARS_MALE = [
 // Alle Avatare kombiniert
 const AVATARS = [...AVATARS_FEMALE, ...AVATARS_MALE]
 
-// Stimmen passend zum Geschlecht
+// Stimmen passend zum Geschlecht (verified from HeyGen API)
 const VOICES = {
-  female: 'fb8c5c3f02854c57a4da182d4ed59467', // Ivy (weiblich englisch)
-  male: '2f9fdbc8db6047c8b5a6278b1a6acfe1'    // Matthew (männlich englisch)
+  female: 'fb8c5c3f02854c57a4da182d4ed59467', // Ivy (female English)
+  male: 'fba616e37c3f4363844cc0be0721ddbd'    // Mark (male English)
 }
 
 // ============================================
