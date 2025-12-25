@@ -386,11 +386,22 @@ async function createHeyGenWebM(topic = 'auto') {
   })
 }
 
-async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
+// Video Format Configurations
+const VIDEO_FORMATS = {
+  'youtube': { width: 1920, height: 1080, aspect: '16:9', name: 'YouTube/LinkedIn' },
+  'tiktok': { width: 1080, height: 1920, aspect: '9:16', name: 'TikTok/Reels' },
+  'instagram': { width: 1080, height: 1080, aspect: '1:1', name: 'Instagram Feed' },
+  'twitter': { width: 1280, height: 720, aspect: '16:9', name: 'Twitter' }
+}
+
+async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format = 'youtube') {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
+
+  // Get format configuration
+  const formatConfig = VIDEO_FORMATS[format] || VIDEO_FORMATS.youtube
 
   // Wenn 'auto', nutze tägliches Script (mit Sprachwechsel DE/EN)
   let scriptKey, script, lang
@@ -427,6 +438,7 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
   console.log(`  - Voice: ${avatar.gender}`)
+  console.log(`  - Format: ${formatConfig.name} (${formatConfig.aspect})`)
   console.log(`  - Background: ${useGreenscreen ? 'GREENSCREEN' : background.value}`)
 
   const payload = JSON.stringify({
@@ -435,7 +447,7 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: 0.85  // Etwas kleiner für bessere Einpassung
+        scale: format === 'tiktok' ? 1.0 : 0.85  // Größer für Portrait
       },
       voice: {
         type: 'text',
@@ -445,8 +457,8 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
       },
       background: background
     }],
-    dimension: { width: 1280, height: 720 },
-    aspect_ratio: '16:9'
+    dimension: { width: formatConfig.width, height: formatConfig.height },
+    aspect_ratio: formatConfig.aspect
   })
 
   return new Promise((resolve) => {
@@ -1208,26 +1220,67 @@ app.post('/create-full-video', async (req, res) => {
 })
 
 // ============================================
-// START SERVER
+// MULTI-FORMAT VIDEO CREATION
+// ============================================
+app.post('/create-multi-format', async (req, res) => {
+  const { topic = 'auto', formats = ['youtube', 'tiktok', 'instagram'] } = req.body
+  const authHeader = req.headers.authorization
+
+  if (authHeader !== `Bearer ${process.env.GENESIS_API_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  console.log('[Genesis] MULTI-FORMAT:', topic, '->', formats.join(', '))
+  const results = {}
+  const daily = getDailyScript()
+
+  for (const format of formats) {
+    try {
+      const result = await createHeyGenVideo(topic, false, format)
+      if (result.success && result.videoId) {
+        let status = { status: 'processing' }
+        let attempts = 0
+        while (status.status === 'processing' && attempts < 60) {
+          await new Promise(r => setTimeout(r, 5000))
+          status = await checkHeyGenStatus(result.videoId)
+          attempts++
+        }
+        if (status.videoUrl) {
+          const videoBuffer = await new Promise((resolve, reject) => {
+            https.get(status.videoUrl, (res) => {
+              const chunks = []
+              res.on('data', chunk => chunks.push(chunk))
+              res.on('end', () => resolve(Buffer.concat(chunks)))
+              res.on('error', reject)
+            }).on('error', reject)
+          })
+          const filename = `genesis-${format}-${result.script}-${Date.now()}.mp4`
+          await supabase.storage.from('videos').upload(filename, videoBuffer, { contentType: 'video/mp4' })
+          const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
+          results[format] = { success: true, url: urlData.publicUrl, script: result.script }
+        } else {
+          results[format] = { success: false, error: status.error || 'Timeout' }
+        }
+      } else {
+        results[format] = { success: false, error: result.error }
+      }
+    } catch (e) {
+      results[format] = { success: false, error: e.message }
+    }
+  }
+  res.json({ success: true, script: daily.script, scriptKey: daily.key, results })
+})
+
+// Get formats info
+app.get('/formats', (req, res) => {
+  res.json({ formats: VIDEO_FORMATS, scripts: SCRIPT_KEYS, total: SCRIPT_KEYS.length })
+})
+
+// ============================================
+// START SERVER v3.3
 // ============================================
 app.listen(PORT, () => {
-  console.log(`
-╔════════════════════════════════════════════════════╗
-║  EVIDENRA Genesis Cloud v3.0                       ║
-║  HeyGen Video-Background Integration               ║
-╠════════════════════════════════════════════════════╣
-║  Port: ${PORT}                                        ║
-║  Scripts: ${SCRIPT_KEYS.length} verschiedene                          ║
-║  Avatars: ${AVATARS.length} (${AVATARS_FEMALE.length}F + ${AVATARS_MALE.length}M)                              ║
-║  Today: ${getDailyScript().key.padEnd(34)}    ║
-╠════════════════════════════════════════════════════╣
-║  Endpoints:                                        ║
-║    POST /create-video      - Avatar only           ║
-║    POST /create-full-video - BG + Avatar + FFmpeg  ║
-║    GET  /today             - Today's script        ║
-║    GET  /status/:id   - Check status           ║
-║    GET  /videos       - List recent videos     ║
-║    GET  /health       - Health check           ║
-╚════════════════════════════════════════════════╝
-  `)
+  console.log('[Genesis Cloud v3.3] Running on port', PORT)
+  console.log('  Scripts:', SCRIPT_KEYS.length, '| Formats: youtube, tiktok, instagram, twitter')
+  console.log('  NEW: POST /create-multi-format, GET /formats')
 })
