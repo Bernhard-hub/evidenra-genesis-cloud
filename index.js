@@ -291,6 +291,96 @@ function getRandomBackground() {
 // ============================================
 // HEYGEN API
 // ============================================
+
+// WebM Video mit transparentem Hintergrund erstellen (für Compositing!)
+async function createHeyGenWebM(topic = 'auto') {
+  const apiKey = process.env.HEYGEN_API_KEY
+  if (!apiKey) {
+    return { success: false, error: 'HEYGEN_API_KEY not configured' }
+  }
+
+  // Script auswählen
+  let scriptKey, script, lang
+  if (topic === 'auto') {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  } else if (SCRIPTS[topic]) {
+    scriptKey = topic
+    script = SCRIPTS[topic]
+    lang = 'en'
+  } else if (SCRIPTS_DE[topic]) {
+    scriptKey = topic
+    script = SCRIPTS_DE[topic]
+    lang = 'de'
+  } else {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  }
+
+  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
+  const voice = VOICES[avatar.gender] || VOICES.female
+
+  console.log(`[Genesis] Creating TRANSPARENT WebM video:`)
+  console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
+  console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
+  console.log(`  - Format: WebM with Alpha Channel (transparent background)`)
+
+  // v1/video.webm API für transparenten Hintergrund
+  const payload = JSON.stringify({
+    avatar_id: avatar.id,
+    input_text: script,
+    voice_id: voice,
+    avatar_style: 'normal',
+    width: 720,   // WebM unterstützt kleinere Größen
+    height: 720
+  })
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.heygen.com',
+      path: '/v1/video.webm',
+      method: 'POST',
+      headers: {
+        'X-Api-Key': apiKey,
+        'Content-Type': 'application/json'
+      }
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          console.log(`[Genesis] WebM API Response:`, JSON.stringify(result).substring(0, 200))
+          if (result.data?.video_id) {
+            resolve({
+              success: true,
+              videoId: result.data.video_id,
+              avatar: avatar.name,
+              script: scriptKey,
+              format: 'webm'
+            })
+          } else if (result.error) {
+            // Fallback auf normales Video mit Green Screen
+            console.log(`[Genesis] WebM failed, falling back to green screen: ${result.error.message || result.error}`)
+            resolve({ success: false, error: result.error.message || result.error, fallback: true })
+          } else {
+            resolve({ success: false, error: 'Unknown WebM API error' })
+          }
+        } catch (e) {
+          resolve({ success: false, error: e.message })
+        }
+      })
+    })
+    req.on('error', (e) => resolve({ success: false, error: e.message }))
+    req.write(payload)
+    req.end()
+  })
+}
+
 async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
@@ -555,11 +645,21 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     backgroundPath = null
   }
 
-  // Schritt 2: HeyGen Avatar erstellen (mit Greenscreen für Compositing!)
-  const useGreenscreen = backgroundPath !== null // Greenscreen nur wenn wir compositen
+  // Schritt 2: HeyGen Avatar erstellen
+  // PRIORITÄT: WebM mit transparentem Hintergrund (kein Chroma-Key nötig!)
   console.log(`[Genesis] Step 2: Creating HeyGen avatar video...`)
-  console.log(`[Genesis]   Greenscreen Mode: ${useGreenscreen ? 'YES' : 'NO'}`)
-  const heygenResult = await createHeyGenVideo(topic, useGreenscreen)
+  console.log(`[Genesis]   Trying WebM with transparent background first...`)
+
+  let heygenResult = await createHeyGenWebM(topic)
+  let isWebM = heygenResult.success && heygenResult.format === 'webm'
+
+  // Fallback auf Green Screen wenn WebM fehlschlägt
+  if (!heygenResult.success) {
+    console.log(`[Genesis]   WebM not available, falling back to green screen...`)
+    heygenResult = await createHeyGenVideo(topic, true) // true = greenscreen
+    isWebM = false
+  }
+
   if (!heygenResult.success) {
     const errorMsg = typeof heygenResult.error === 'string'
       ? heygenResult.error
@@ -571,17 +671,34 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
   console.log(`[Genesis] Step 3: Waiting for HeyGen...`)
   const avatarUrl = await waitForVideo(heygenResult.videoId)
 
-  // Avatar herunterladen
-  const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.mp4`)
+  // Avatar herunterladen (WebM oder MP4)
+  const avatarExt = isWebM ? 'webm' : 'mp4'
+  const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.${avatarExt}`)
   await downloadVideo(avatarUrl, avatarPath)
-  console.log(`[Genesis] Avatar downloaded: ${avatarPath}`)
+  console.log(`[Genesis] Avatar downloaded: ${avatarPath} (${isWebM ? 'WebM transparent' : 'MP4 greenscreen'})`)
 
   let finalPath
   if (backgroundPath && fs.existsSync(backgroundPath)) {
-    // Schritt 4: Videos kombinieren mit Chroma-Key + Logo
-    console.log(`[Genesis] Step 4: Compositing with Chroma-Key + Logo Overlay...`)
     finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
-    compositeVideos(backgroundPath, avatarPath, finalPath, true) // true = use chroma-key
+
+    if (isWebM) {
+      // WebM mit transparentem Hintergrund - einfaches Overlay ohne Chroma-Key!
+      console.log(`[Genesis] Step 4: Compositing WebM (transparent) over background...`)
+      const overlayCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "[1:v]scale=350:-1[avatar];[0:v][avatar]overlay=W-w-10:H-h+60:shortest=1,drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k "${finalPath}"`
+
+      try {
+        execSync(overlayCmd, { stdio: 'pipe', timeout: 300000 })
+        console.log(`[Genesis] WebM composite created successfully!`)
+      } catch (err) {
+        console.error(`[Genesis] WebM overlay failed:`, err.message)
+        // Fallback: Chromakey
+        compositeVideos(backgroundPath, avatarPath, finalPath, true)
+      }
+    } else {
+      // Green Screen - Chroma-Key nötig
+      console.log(`[Genesis] Step 4: Compositing with Chroma-Key + Logo Overlay...`)
+      compositeVideos(backgroundPath, avatarPath, finalPath, true)
+    }
 
     // Cleanup Hintergrund
     fs.unlinkSync(backgroundPath)
@@ -595,11 +712,7 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
 
     // Einfaches Logo-Overlay auf Avatar
-    const logoCmd = `ffmpeg -y -i "${avatarPath}" \
-      -filter_complex "drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,\
-      drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" \
-      -map "[outv]" -map 0:a -c:v libx264 -preset fast -crf 21 -c:a copy \
-      "${finalPath}"`
+    const logoCmd = `ffmpeg -y -i "${avatarPath}" -filter_complex "drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" -map "[outv]" -map 0:a -c:v libx264 -preset fast -crf 21 -c:a copy "${finalPath}"`
 
     try {
       execSync(logoCmd, { stdio: 'pipe', timeout: 120000 })
