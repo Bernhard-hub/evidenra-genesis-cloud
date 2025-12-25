@@ -659,24 +659,11 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
   const voice = VOICES[avatar.gender] || VOICES.female
 
-  // Avatar-Position basierend auf Format anpassen
-  let avatarScale, avatarOffsetX, avatarOffsetY
-  if (format === 'tiktok') {
-    // Für Portrait: Avatar größer und zentrierter unten
-    avatarScale = 0.55
-    avatarOffsetX = 0.0   // Zentriert
-    avatarOffsetY = 0.35  // Untere Hälfte
-  } else if (format === 'instagram') {
-    // Für Quadrat: Avatar mittig-rechts unten
-    avatarScale = 0.50
-    avatarOffsetX = 0.25
-    avatarOffsetY = 0.30
-  } else {
-    // Für Landscape (youtube/twitter): Avatar rechts unten
-    avatarScale = 0.45
-    avatarOffsetX = 0.35
-    avatarOffsetY = 0.35
-  }
+  // Avatar-Position: Rechts am UNTEREN BILDRAND
+  // y=0.5 = maximale Verschiebung nach unten
+  const avatarScale = 0.45
+  const avatarOffsetX = 0.35  // Nach rechts
+  const avatarOffsetY = 0.50  // Am unteren Bildrand!
 
   console.log(`[Genesis] Creating video WITH VIDEO URL BACKGROUND:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
