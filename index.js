@@ -270,22 +270,17 @@ Aber Tools wie EVIDENRA existieren, um zu helfen, nicht zu ersetzen. Lass KI die
 Tritt unserer Gründer-Community bei. 60% Rabatt!`
 }
 
-// Script-Namen für tägliche Rotation
-const SCRIPT_KEYS_EN = Object.keys(SCRIPTS)
-const SCRIPT_KEYS_DE = Object.keys(SCRIPTS_DE)
+// Script-Namen für tägliche Rotation (EN und DE gemischt)
+const ALL_SCRIPTS = { ...SCRIPTS, ...SCRIPTS_DE }
+const SCRIPT_KEYS = Object.keys(ALL_SCRIPTS)
 
-// Tägliches Script mit Sprachwechsel (gerade Tage = EN, ungerade = DE)
+// Tägliches Script basierend auf Datum
 function getDailyScript() {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
-  const isGerman = dayOfYear % 2 === 1 // Ungerade Tage = Deutsch
-
-  if (isGerman) {
-    const index = Math.floor(dayOfYear / 2) % SCRIPT_KEYS_DE.length
-    return { key: SCRIPT_KEYS_DE[index], lang: 'de', scripts: SCRIPTS_DE }
-  } else {
-    const index = Math.floor(dayOfYear / 2) % SCRIPT_KEYS_EN.length
-    return { key: SCRIPT_KEYS_EN[index], lang: 'en', scripts: SCRIPTS }
-  }
+  const index = dayOfYear % SCRIPT_KEYS.length
+  const key = SCRIPT_KEYS[index]
+  const isGerman = SCRIPTS_DE[key] !== undefined
+  return { key, lang: isGerman ? 'de' : 'en', script: ALL_SCRIPTS[key] }
 }
 
 // Zufälliger Hintergrund
@@ -307,7 +302,7 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
   if (topic === 'auto') {
     const daily = getDailyScript()
     scriptKey = daily.key
-    script = daily.scripts[daily.key]
+    script = daily.script
     lang = daily.lang
   } else if (SCRIPTS[topic]) {
     scriptKey = topic
@@ -320,7 +315,7 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
   } else {
     const daily = getDailyScript()
     scriptKey = daily.key
-    script = daily.scripts[daily.key]
+    script = daily.script
     lang = daily.lang
   }
 
@@ -706,11 +701,12 @@ app.get('/health', (req, res) => {
 
 // Aktuelles tägliches Script anzeigen
 app.get('/today', (req, res) => {
-  const scriptKey = getDailyScript()
+  const daily = getDailyScript()
   res.json({
     date: new Date().toISOString().split('T')[0],
-    script: scriptKey,
-    text: SCRIPTS[scriptKey],
+    script: daily.key,
+    lang: daily.lang,
+    text: daily.script,
     allScripts: SCRIPT_KEYS
   })
 })
@@ -886,7 +882,7 @@ app.listen(PORT, () => {
 ║  Port: ${PORT}                                        ║
 ║  Scripts: ${SCRIPT_KEYS.length} verschiedene                          ║
 ║  Avatars: ${AVATARS.length} (${AVATARS_FEMALE.length}F + ${AVATARS_MALE.length}M)                              ║
-║  Today: ${getDailyScript().padEnd(34)}    ║
+║  Today: ${getDailyScript().key.padEnd(34)}    ║
 ╠════════════════════════════════════════════════════╣
 ║  Endpoints:                                        ║
 ║    POST /create-video      - Avatar only           ║
