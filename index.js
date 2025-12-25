@@ -279,6 +279,9 @@ Tritt unserer Gründer-Community bei. 60% Rabatt!`
 const ALL_SCRIPTS = { ...SCRIPTS, ...SCRIPTS_DE }
 const SCRIPT_KEYS = Object.keys(ALL_SCRIPTS)
 
+// Demo-Typen für tägliche Rotation (passend zu Recorder)
+const DEMO_ROTATION = ['homepage', 'features', 'pricing', 'app_login', 'howitworks', 'reviews']
+
 // Tägliches Script basierend auf Datum
 function getDailyScript() {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
@@ -286,6 +289,12 @@ function getDailyScript() {
   const key = SCRIPT_KEYS[index]
   const isGerman = SCRIPTS_DE[key] !== undefined
   return { key, lang: isGerman ? 'de' : 'en', script: ALL_SCRIPTS[key] }
+}
+
+// Täglicher Demo-Typ für Website-Aufnahme
+function getDailyDemoType() {
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
+  return DEMO_ROTATION[dayOfYear % DEMO_ROTATION.length]
 }
 
 // Zufälliger Hintergrund
@@ -603,11 +612,15 @@ async function uploadVideoToHeyGen(videoPath) {
 }
 
 // Avatar Video MIT Video-URL als Background erstellen (kein Chromakey nötig!)
-async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
+// format: 'youtube', 'tiktok', 'instagram', 'twitter'
+async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format = 'youtube') {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
+
+  // Get format configuration
+  const formatConfig = VIDEO_FORMATS[format] || VIDEO_FORMATS.youtube
 
   // Script auswählen
   let scriptKey, script, lang
@@ -634,9 +647,29 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
   const voice = VOICES[avatar.gender] || VOICES.female
 
+  // Avatar-Position basierend auf Format anpassen
+  let avatarScale, avatarOffsetX, avatarOffsetY
+  if (format === 'tiktok') {
+    // Für Portrait: Avatar größer und zentrierter unten
+    avatarScale = 0.55
+    avatarOffsetX = 0.0   // Zentriert
+    avatarOffsetY = 0.35  // Untere Hälfte
+  } else if (format === 'instagram') {
+    // Für Quadrat: Avatar mittig-rechts unten
+    avatarScale = 0.50
+    avatarOffsetX = 0.25
+    avatarOffsetY = 0.30
+  } else {
+    // Für Landscape (youtube/twitter): Avatar rechts unten
+    avatarScale = 0.45
+    avatarOffsetX = 0.35
+    avatarOffsetY = 0.35
+  }
+
   console.log(`[Genesis] Creating video WITH VIDEO URL BACKGROUND:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
+  console.log(`  - Format: ${formatConfig.name} (${formatConfig.aspect})`)
   console.log(`  - Background: ${videoUrl}`)
 
   const payload = JSON.stringify({
@@ -645,10 +678,10 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: 0.45,  // Avatar etwas kleiner
+        scale: avatarScale,
         offset: {
-          x: 0.35,   // Nach rechts (0 = mitte, 0.5 = ganz rechts)
-          y: 0.35    // Nach unten (0 = mitte, 0.5 = ganz unten)
+          x: avatarOffsetX,
+          y: avatarOffsetY
         }
       },
       voice: {
@@ -663,8 +696,8 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
         play_style: 'loop'
       }
     }],
-    dimension: { width: 1280, height: 720 },
-    aspect_ratio: '16:9'
+    dimension: { width: formatConfig.width, height: formatConfig.height },
+    aspect_ratio: formatConfig.aspect
   })
 
   return new Promise((resolve) => {
@@ -1001,8 +1034,9 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'EVIDENRA Genesis Cloud',
-    version: '3.2.2',  // Complete error serialization
+    version: '3.4.0',  // Multi-format with website background
     todaysScript: getDailyScript(),
+    todaysDemoType: getDailyDemoType(),
     totalScripts: SCRIPT_KEYS.length
   })
 })
@@ -1220,7 +1254,7 @@ app.post('/create-full-video', async (req, res) => {
 })
 
 // ============================================
-// MULTI-FORMAT VIDEO CREATION
+// MULTI-FORMAT VIDEO CREATION (MIT WEBSITE-HINTERGRUND!)
 // ============================================
 app.post('/create-multi-format', async (req, res) => {
   const { topic = 'auto', formats = ['youtube', 'tiktok', 'instagram'] } = req.body
@@ -1230,45 +1264,176 @@ app.post('/create-multi-format', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  console.log('[Genesis] MULTI-FORMAT:', topic, '->', formats.join(', '))
+  console.log('[Genesis] === MULTI-FORMAT WITH WEBSITE BACKGROUND ===')
+  console.log('[Genesis] Formats:', formats.join(', '))
+
   const results = {}
   const daily = getDailyScript()
+  const demoType = getDailyDemoType ? getDailyDemoType() : 'demo'
+
+  // Viewport-Größen für verschiedene Formate
+  const FORMAT_VIEWPORTS = {
+    'youtube': { width: 1280, height: 720 },
+    'tiktok': { width: 720, height: 1280 },
+    'instagram': { width: 720, height: 720 },
+    'twitter': { width: 1280, height: 720 }
+  }
 
   for (const format of formats) {
+    console.log(`\n[Genesis] === Processing format: ${format} ===`)
     try {
-      const result = await createHeyGenVideo(topic, false, format)
-      if (result.success && result.videoId) {
-        let status = { status: 'processing' }
-        let attempts = 0
-        while (status.status === 'processing' && attempts < 60) {
-          await new Promise(r => setTimeout(r, 5000))
-          status = await checkHeyGenStatus(result.videoId)
-          attempts++
-        }
-        if (status.videoUrl) {
-          const videoBuffer = await new Promise((resolve, reject) => {
-            https.get(status.videoUrl, (res) => {
-              const chunks = []
-              res.on('data', chunk => chunks.push(chunk))
-              res.on('end', () => resolve(Buffer.concat(chunks)))
-              res.on('error', reject)
-            }).on('error', reject)
-          })
-          const filename = `genesis-${format}-${result.script}-${Date.now()}.mp4`
-          await supabase.storage.from('videos').upload(filename, videoBuffer, { contentType: 'video/mp4' })
-          const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
-          results[format] = { success: true, url: urlData.publicUrl, script: result.script }
-        } else {
-          results[format] = { success: false, error: status.error || 'Timeout' }
-        }
-      } else {
-        results[format] = { success: false, error: result.error }
+      // Schritt 1: Website im richtigen Aspect Ratio aufnehmen
+      const viewport = FORMAT_VIEWPORTS[format] || FORMAT_VIEWPORTS.youtube
+      console.log(`[Genesis] Recording website at ${viewport.width}x${viewport.height}...`)
+
+      const recorder = new ScreenRecorder({
+        outputDir: TEMP_DIR,
+        width: viewport.width,
+        height: viewport.height
+      })
+
+      let backgroundPath
+      try {
+        backgroundPath = await recorder.record(demoType)
+        console.log(`[Genesis] Background recorded: ${backgroundPath}`)
+      } catch (recErr) {
+        console.error(`[Genesis] Recording failed for ${format}:`, recErr.message)
+        results[format] = { success: false, error: `Recording failed: ${recErr.message}` }
+        continue
       }
+
+      // Schritt 2: WebM zu MP4 konvertieren
+      const mp4Path = backgroundPath.replace('.webm', '.mp4')
+      try {
+        execSync(`ffmpeg -y -i "${backgroundPath}" -c:v libx264 -preset fast -crf 23 "${mp4Path}"`, {
+          stdio: 'pipe',
+          timeout: 120000
+        })
+        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+        backgroundPath = mp4Path
+      } catch (convErr) {
+        console.log(`[Genesis] Conversion skipped or failed, using original`)
+      }
+
+      // Schritt 3: Background zu Supabase hochladen
+      console.log(`[Genesis] Uploading background to Supabase...`)
+      const bgTimestamp = Date.now()
+      const bgFilename = `background-${format}-${bgTimestamp}.mp4`
+
+      let backgroundUrl
+      try {
+        const videoBuffer = fs.readFileSync(backgroundPath)
+        console.log(`[Genesis] Background size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('videos')
+          .upload(bgFilename, videoBuffer, {
+            contentType: 'video/mp4',
+            upsert: true
+          })
+
+        if (uploadError) {
+          throw new Error(`Supabase upload error: ${uploadError.message}`)
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('videos')
+          .getPublicUrl(bgFilename)
+
+        backgroundUrl = urlData.publicUrl
+        console.log(`[Genesis] Background uploaded: ${backgroundUrl}`)
+
+        // Lokale Datei löschen
+        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+      } catch (uploadErr) {
+        console.error(`[Genesis] Upload failed for ${format}:`, uploadErr.message)
+        if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+        results[format] = { success: false, error: `Upload failed: ${uploadErr.message}` }
+        continue
+      }
+
+      // Schritt 4: HeyGen Video MIT Background erstellen
+      console.log(`[Genesis] Creating HeyGen video with background...`)
+      const heygenResult = await createHeyGenVideoWithBackground(topic, backgroundUrl, format)
+
+      if (!heygenResult.success) {
+        results[format] = { success: false, error: heygenResult.error }
+        // Background löschen da nicht mehr benötigt
+        await supabase.storage.from('videos').remove([bgFilename])
+        continue
+      }
+
+      // Schritt 5: Auf HeyGen warten
+      console.log(`[Genesis] Waiting for HeyGen to render ${format}...`)
+      let status = { status: 'processing' }
+      let attempts = 0
+      while (status.status === 'processing' && attempts < 80) {
+        await new Promise(r => setTimeout(r, 5000))
+        status = await checkHeyGenStatus(heygenResult.videoId)
+        console.log(`[Genesis] ${format} status: ${status.status} (attempt ${attempts + 1})`)
+        attempts++
+      }
+
+      if (status.status === 'completed' && status.videoUrl) {
+        // Schritt 6: Fertiges Video herunterladen und zu Supabase hochladen
+        console.log(`[Genesis] Downloading final ${format} video...`)
+        const videoBuffer = await new Promise((resolve, reject) => {
+          https.get(status.videoUrl, (res) => {
+            const chunks = []
+            res.on('data', chunk => chunks.push(chunk))
+            res.on('end', () => resolve(Buffer.concat(chunks)))
+            res.on('error', reject)
+          }).on('error', reject)
+        })
+
+        const finalFilename = `genesis-${format}-${heygenResult.script}-${Date.now()}.mp4`
+        const { error: finalUploadError } = await supabase.storage
+          .from('videos')
+          .upload(finalFilename, videoBuffer, {
+            contentType: 'video/mp4',
+            upsert: true
+          })
+
+        if (finalUploadError) {
+          console.error(`[Genesis] Final upload failed:`, finalUploadError.message)
+          results[format] = { success: false, error: finalUploadError.message }
+        } else {
+          const { data: finalUrlData } = supabase.storage
+            .from('videos')
+            .getPublicUrl(finalFilename)
+
+          console.log(`[Genesis] ${format} complete: ${finalUrlData.publicUrl}`)
+          results[format] = {
+            success: true,
+            url: finalUrlData.publicUrl,
+            script: heygenResult.script,
+            avatar: heygenResult.avatar
+          }
+        }
+
+        // Background-Video löschen (nicht mehr benötigt)
+        await supabase.storage.from('videos').remove([bgFilename])
+      } else {
+        results[format] = { success: false, error: status.error || 'HeyGen timeout' }
+        await supabase.storage.from('videos').remove([bgFilename])
+      }
+
     } catch (e) {
+      console.error(`[Genesis] Error for ${format}:`, e.message)
       results[format] = { success: false, error: e.message }
     }
   }
-  res.json({ success: true, script: daily.script, scriptKey: daily.key, results })
+
+  console.log('\n[Genesis] === MULTI-FORMAT COMPLETE ===')
+  console.log('[Genesis] Results:', JSON.stringify(results, null, 2))
+
+  res.json({
+    success: true,
+    script: daily.script,
+    scriptKey: daily.key,
+    lang: daily.lang,
+    results
+  })
 })
 
 // Get formats info
@@ -1277,10 +1442,11 @@ app.get('/formats', (req, res) => {
 })
 
 // ============================================
-// START SERVER v3.3
+// START SERVER v3.4.0
 // ============================================
 app.listen(PORT, () => {
-  console.log('[Genesis Cloud v3.3] Running on port', PORT)
+  console.log('[Genesis Cloud v3.4.0] Running on port', PORT)
   console.log('  Scripts:', SCRIPT_KEYS.length, '| Formats: youtube, tiktok, instagram, twitter')
-  console.log('  NEW: POST /create-multi-format, GET /formats')
+  console.log('  NEW: Multi-format WITH website background recording!')
+  console.log('  Demo today:', getDailyDemoType())
 })
