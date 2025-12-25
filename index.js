@@ -38,19 +38,18 @@ const supabase = createClient(
 // ============================================
 // AVATARE MIT PASSENDEN STIMMEN
 // ============================================
-// Standard HeyGen public avatars (verified working)
+// Verified HeyGen public avatars (from API response)
 const AVATARS_FEMALE = [
-  { id: 'Anna_public_3_20240108', name: 'Anna', gender: 'female' },
-  { id: 'Daisy-inskirt-20220818', name: 'Daisy', gender: 'female' },
-  { id: 'Kristin_public_2_20240108', name: 'Kristin', gender: 'female' },
-  { id: 'Monica_public_3_20231218', name: 'Monica', gender: 'female' }
+  { id: 'Abigail_expressive_2024112501', name: 'Abigail', gender: 'female' },
+  { id: 'Abigail_standing_office_front', name: 'Abigail Office', gender: 'female' },
+  { id: 'Abigail_sitting_sofa_front', name: 'Abigail Sofa', gender: 'female' }
 ]
 
 const AVATARS_MALE = [
-  { id: 'Josh_public_3_20240618', name: 'Josh', gender: 'male' },
-  { id: 'Tyler_public_pro_20230601', name: 'Tyler', gender: 'male' },
-  { id: 'Wayne_20240711', name: 'Wayne', gender: 'male' },
-  { id: 'Eric_public_pro_20230608', name: 'Eric', gender: 'male' }
+  { id: 'Aditya_public_1', name: 'Aditya Blue Blazer', gender: 'male' },
+  { id: 'Aditya_public_2', name: 'Aditya Blue T-Shirt', gender: 'male' },
+  { id: 'Adrian_public_3_20240312', name: 'Adrian Blue Shirt', gender: 'male' },
+  { id: 'Adrian_public_2_20240312', name: 'Adrian Blue Suit', gender: 'male' }
 ]
 
 // Alle Avatare kombiniert
