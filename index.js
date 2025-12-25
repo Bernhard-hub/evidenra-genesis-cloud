@@ -493,14 +493,15 @@ function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = 
       console.log(`[Genesis] Creating logo overlay placeholder...`)
     }
 
-    // FFmpeg Chroma-Key Filter (EINZEILIG für korrekte Ausführung)
-    // 1. colorkey entfernt grün (similarity=0.5 = aggressiver)
-    // 2. scale=300 Avatar kleiner
-    // 3. overlay: H-h+80 = Avatar tiefer (mehr vom Körper sichtbar)
-    // 4. drawbox + drawtext = EVIDENRA Logo über HeyGen
+    // FFmpeg Chroma-Key Filter - chromakey für professionelle Green Screen Entfernung
+    // chromakey ist besser als colorkey für Video-Greenscreens
+    // HeyGen verwendet verschiedene Grüntöne, daher mehrere Filter
     const filterComplex = [
-      '[1:v]colorkey=color=0x00FF00:similarity=0.5:blend=0.05,scale=300:-1[avatar_keyed]',
+      // Schritt 1: chromakey für HeyGen Green Screen (similarity=0.3 = moderate, blend=0.1 = weiche Kanten)
+      '[1:v]chromakey=color=green:similarity=0.3:blend=0.1,scale=300:-1[avatar_keyed]',
+      // Schritt 2: Avatar über Hintergrund legen
       '[0:v][avatar_keyed]overlay=W-w-10:H-h+80:shortest=1[with_avatar]',
+      // Schritt 3: EVIDENRA Logo über HeyGen Watermark
       '[with_avatar]drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]'
     ].join(';')
 
