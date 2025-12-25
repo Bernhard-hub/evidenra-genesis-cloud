@@ -38,18 +38,18 @@ const supabase = createClient(
 // ============================================
 // AVATARE MIT PASSENDEN STIMMEN
 // ============================================
-// Verified HeyGen public avatars (from API response)
+// MODERNE Avatare - expressive Versionen (jung & professionell)
 const AVATARS_FEMALE = [
-  { id: 'Abigail_expressive_2024112501', name: 'Abigail', gender: 'female' },
-  { id: 'Abigail_standing_office_front', name: 'Abigail Office', gender: 'female' },
-  { id: 'Abigail_sitting_sofa_front', name: 'Abigail Sofa', gender: 'female' }
+  { id: 'Annie_expressive_public', name: 'Annie', gender: 'female' },
+  { id: 'Annie_expressive2_public', name: 'Annie Style 2', gender: 'female' },
+  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey', gender: 'female' },
+  { id: 'Anna_public_3_20240108', name: 'Anna', gender: 'female' }
 ]
 
 const AVATARS_MALE = [
-  { id: 'Aditya_public_1', name: 'Aditya Blue Blazer', gender: 'male' },
-  { id: 'Aditya_public_2', name: 'Aditya Blue T-Shirt', gender: 'male' },
-  { id: 'Adrian_public_3_20240312', name: 'Adrian Blue Shirt', gender: 'male' },
-  { id: 'Adrian_public_2_20240312', name: 'Adrian Blue Suit', gender: 'male' }
+  { id: 'Albert_public_1', name: 'Albert', gender: 'male' },
+  { id: 'Albert_public_2', name: 'Albert Style 2', gender: 'male' },
+  { id: 'Adrian_public_20240312', name: 'Adrian', gender: 'male' }
 ]
 
 // Alle Avatare kombiniert
@@ -410,18 +410,17 @@ function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = 
       console.log(`[Genesis] Creating logo overlay placeholder...`)
     }
 
-    // FFmpeg Filter:
-    // [1:v] = Avatar Video
-    // chromakey: Entfernt grün (00FF00) mit Toleranz
-    // scale: Avatar auf 420px Breite
-    // overlay: Positioniert unten rechts mit Abstand
-    // drawbox: Schwarzes Rechteck über HeyGen Logo + EVIDENRA Text
+    // FFmpeg Filter - VERBESSERT:
+    // chromakey: 0x00FF00 = reines Grün, similarity=0.3 (höher=mehr entfernen), blend=0.1
+    // colorkey ist oft besser als chromakey für reine Farben
+    // Avatar kleiner (350px) und weiter unten rechts
+    // Logo-Box größer und tiefer um HeyGen komplett zu verdecken
     ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
       -filter_complex "\
-        [1:v]chromakey=0x00FF00:0.15:0.1,scale=420:-1[avatar_clean];\
-        [0:v][avatar_clean]overlay=W-w-30:H-h-30:shortest=1[with_avatar];\
-        [with_avatar]drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,\
-        drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" \
+        [1:v]colorkey=0x00FF00:0.3:0.2,scale=350:-1[avatar_clean];\
+        [0:v][avatar_clean]overlay=W-w-20:H-h-20:shortest=1[with_avatar];\
+        [with_avatar]drawbox=x=W-200:y=H-55:w=195:h=50:color=black@0.9:t=fill,\
+        drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=20:x=W-190:y=H-42[outv]" \
       -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k \
       "${outputPath}"`
   } else {
