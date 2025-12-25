@@ -629,7 +629,11 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: 0.5  // Avatar kleiner, damit Video-Hintergrund gut sichtbar
+        scale: 0.45,  // Avatar etwas kleiner
+        offset: {
+          x: 0.35,   // Nach rechts (0 = mitte, 0.5 = ganz rechts)
+          y: 0.35    // Nach unten (0 = mitte, 0.5 = ganz unten)
+        }
       },
       voice: {
         type: 'text',
@@ -639,7 +643,7 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
       },
       background: {
         type: 'video',
-        url: videoUrl,  // Direkte URL statt asset_id!
+        url: videoUrl,
         play_style: 'loop'
       }
     }],
@@ -1097,7 +1101,7 @@ app.post('/create-full-video', async (req, res) => {
     // Neuer Flow: Video kommt direkt von HeyGen (avatarUrl)
     if (result.avatarUrl && !result.videoPath) {
       console.log(`[Genesis] Downloading final video from HeyGen...`)
-      videoBuffer = await new Promise((resolve, reject) => {
+      const rawBuffer = await new Promise((resolve, reject) => {
         https.get(result.avatarUrl, (res) => {
           const chunks = []
           res.on('data', chunk => chunks.push(chunk))
@@ -1105,9 +1109,32 @@ app.post('/create-full-video', async (req, res) => {
           res.on('error', reject)
         }).on('error', reject)
       })
-      console.log(`[Genesis] Downloaded ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+      console.log(`[Genesis] Downloaded ${(rawBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+
+      // EVIDENRA Logo über HeyGen Watermark legen
+      console.log(`[Genesis] Adding EVIDENRA logo overlay...`)
+      const tempInput = path.join(TEMP_DIR, `heygen-${Date.now()}.mp4`)
+      const tempOutput = path.join(TEMP_DIR, `branded-${Date.now()}.mp4`)
+
+      fs.writeFileSync(tempInput, rawBuffer)
+
+      try {
+        // Logo-Box unten rechts über HeyGen Watermark
+        const logoCmd = `ffmpeg -y -i "${tempInput}" -filter_complex "drawbox=x=W-180:y=H-40:w=175:h=35:color=black@0.9:t=fill,drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=16:x=W-170:y=H-32" -c:v libx264 -preset fast -crf 21 -c:a copy "${tempOutput}"`
+        execSync(logoCmd, { stdio: 'pipe', timeout: 120000 })
+        videoBuffer = fs.readFileSync(tempOutput)
+        console.log(`[Genesis] Logo overlay added successfully`)
+      } catch (err) {
+        console.log(`[Genesis] Logo overlay failed, using original: ${err.message}`)
+        videoBuffer = rawBuffer
+      }
+
+      // Cleanup temp files
+      if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput)
+      if (fs.existsSync(tempOutput)) fs.unlinkSync(tempOutput)
+
     } else if (result.videoPath && fs.existsSync(result.videoPath)) {
-      // Alter Flow: Lokale Datei (Chromakey Fallback)
+      // Alter Flow: Lokale Datei
       console.log(`[Genesis] Reading local video file...`)
       videoBuffer = fs.readFileSync(result.videoPath)
       fs.unlinkSync(result.videoPath)
