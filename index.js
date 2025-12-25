@@ -501,17 +501,19 @@ async function checkHeyGenStatus(videoId) {
       res.on('end', () => {
         try {
           const result = JSON.parse(data)
+          const errData = result.data?.error
+          const errStr = typeof errData === 'string' ? errData : (errData ? JSON.stringify(errData) : undefined)
           resolve({
             status: result.data?.status || 'unknown',
             videoUrl: result.data?.video_url,
-            error: result.data?.error
+            error: errStr
           })
         } catch (e) {
-          resolve({ status: 'error', error: e.message })
+          resolve({ status: 'error', error: e?.message || JSON.stringify(e) || 'Parse error' })
         }
       })
     })
-    req.on('error', (e) => resolve({ status: 'error', error: e.message }))
+    req.on('error', (e) => resolve({ status: 'error', error: e?.message || JSON.stringify(e) || 'Request error' }))
     req.end()
   })
 }
@@ -528,7 +530,8 @@ async function waitForVideo(videoId, maxWaitMs = 600000) {
     }
 
     if (status.status === 'failed') {
-      throw new Error(status.error || 'Video generation failed')
+      const errStatus = typeof status.error === 'string' ? status.error : JSON.stringify(status.error)
+      throw new Error(errStatus || 'Video generation failed')
     }
 
     await new Promise(r => setTimeout(r, 15000))
@@ -986,7 +989,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'EVIDENRA Genesis Cloud',
-    version: '3.2.1',  // Error serialization fix
+    version: '3.2.2',  // Complete error serialization
     todaysScript: getDailyScript(),
     totalScripts: SCRIPT_KEYS.length
   })
