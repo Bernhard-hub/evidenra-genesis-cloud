@@ -280,7 +280,19 @@ const ALL_SCRIPTS = { ...SCRIPTS, ...SCRIPTS_DE }
 const SCRIPT_KEYS = Object.keys(ALL_SCRIPTS)
 
 // Demo-Typen für tägliche Rotation (passend zu Recorder)
-const DEMO_ROTATION = ['homepage', 'features', 'pricing', 'app_login', 'howitworks', 'reviews']
+// Mix aus Website (evidenra.com) UND App (basic.evidenra.com)
+const DEMO_ROTATION = [
+  'homepage',           // Tag 1: Website Homepage
+  'app_basic',          // Tag 2: BASIC App
+  'features',           // Tag 3: Website Features
+  'app_basic_tour',     // Tag 4: BASIC App Tour
+  'pricing',            // Tag 5: Website Pricing
+  'app_basic_features', // Tag 6: BASIC App Features
+  'howitworks',         // Tag 7: Website How It Works
+  'reviews',            // Tag 8: Website Reviews
+  'app_pro',            // Tag 9: PRO App (fallback: Basic)
+  'app_ultimate'        // Tag 10: ULTIMATE App (fallback: Basic)
+]
 
 // Tägliches Script basierend auf Datum
 function getDailyScript() {

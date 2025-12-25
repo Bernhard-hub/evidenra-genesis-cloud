@@ -10,6 +10,9 @@ const fs = require('fs')
 
 // Demo-Schritte für verschiedene App-Bereiche (VARIIERT TÄGLICH)
 const DEMO_STEPS = {
+  // ============================================
+  // WEBSITE DEMOS (evidenra.com)
+  // ============================================
   // Homepage scrollen - Features zeigen
   homepage: [
     { action: 'goto', url: 'https://evidenra.com', wait: 3000 },
@@ -32,12 +35,6 @@ const DEMO_STEPS = {
     { action: 'scroll', y: 800, wait: 2000 },
     { action: 'scroll', y: 0, wait: 1500 }
   ],
-  // App Login Seite
-  app_login: [
-    { action: 'goto', url: 'https://app.evidenra.com', wait: 3000 },
-    { action: 'scroll', y: 200, wait: 2000 },
-    { action: 'scroll', y: 0, wait: 2000 }
-  ],
   // How it works
   howitworks: [
     { action: 'goto', url: 'https://evidenra.com/#how-it-works', wait: 2500 },
@@ -50,7 +47,54 @@ const DEMO_STEPS = {
     { action: 'scroll', y: 300, wait: 3000 },
     { action: 'scroll', y: 600, wait: 2000 }
   ],
-  // Default Demo (altes Verhalten)
+
+  // ============================================
+  // APP DEMOS (BASIC - basic.evidenra.com)
+  // ============================================
+  // BASIC App - Hauptansicht
+  app_basic: [
+    { action: 'goto', url: 'https://basic.evidenra.com', wait: 4000 },
+    { action: 'scroll', y: 200, wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
+    { action: 'scroll', y: 0, wait: 2000 }
+  ],
+  // BASIC App - Dashboard Tour
+  app_basic_tour: [
+    { action: 'goto', url: 'https://basic.evidenra.com', wait: 4500 },
+    { action: 'scroll', y: 150, wait: 3000 },
+    { action: 'scroll', y: 300, wait: 3000 },
+    { action: 'scroll', y: 500, wait: 2500 },
+    { action: 'scroll', y: 0, wait: 2000 }
+  ],
+  // BASIC App - Features Fokus
+  app_basic_features: [
+    { action: 'goto', url: 'https://basic.evidenra.com', wait: 4000 },
+    { action: 'scroll', y: 100, wait: 2000 },
+    { action: 'scroll', y: 250, wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
+    { action: 'scroll', y: 600, wait: 2000 },
+    { action: 'scroll', y: 0, wait: 1500 }
+  ],
+
+  // ============================================
+  // PRO & ULTIMATE (sobald verfügbar)
+  // ============================================
+  // Placeholder für PRO
+  app_pro: [
+    { action: 'goto', url: 'https://basic.evidenra.com', wait: 4000 },  // Fallback auf Basic
+    { action: 'scroll', y: 200, wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
+    { action: 'scroll', y: 0, wait: 2000 }
+  ],
+  // Placeholder für ULTIMATE
+  app_ultimate: [
+    { action: 'goto', url: 'https://basic.evidenra.com', wait: 4000 },  // Fallback auf Basic
+    { action: 'scroll', y: 200, wait: 2500 },
+    { action: 'scroll', y: 400, wait: 2500 },
+    { action: 'scroll', y: 0, wait: 2000 }
+  ],
+
+  // Default Demo (Fallback)
   demo: [
     { action: 'goto', url: 'https://evidenra.com', wait: 2000 },
     { action: 'scroll', y: 500, wait: 2000 },
@@ -59,8 +103,19 @@ const DEMO_STEPS = {
   ]
 }
 
-// Tägliche Rotation der Demo-Typen
-const DEMO_ROTATION = ['homepage', 'features', 'pricing', 'app_login', 'howitworks', 'reviews']
+// Tägliche Rotation - Mix aus Website UND App Demos
+const DEMO_ROTATION = [
+  'homepage',           // Tag 1: Website Homepage
+  'app_basic',          // Tag 2: BASIC App
+  'features',           // Tag 3: Website Features
+  'app_basic_tour',     // Tag 4: BASIC App Tour
+  'pricing',            // Tag 5: Website Pricing
+  'app_basic_features', // Tag 6: BASIC App Features
+  'howitworks',         // Tag 7: Website How It Works
+  'reviews',            // Tag 8: Website Reviews
+  'app_pro',            // Tag 9: PRO App (fallback: Basic)
+  'app_ultimate'        // Tag 10: ULTIMATE App (fallback: Basic)
+]
 
 function getDailyDemoType() {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000)
