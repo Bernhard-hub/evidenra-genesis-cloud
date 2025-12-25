@@ -410,19 +410,18 @@ function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = 
       console.log(`[Genesis] Creating logo overlay placeholder...`)
     }
 
-    // FFmpeg Filter - VERBESSERT:
-    // chromakey: 0x00FF00 = reines Grün, similarity=0.3 (höher=mehr entfernen), blend=0.1
-    // colorkey ist oft besser als chromakey für reine Farben
-    // Avatar kleiner (350px) und weiter unten rechts
-    // Logo-Box größer und tiefer um HeyGen komplett zu verdecken
-    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
-      -filter_complex "\
-        [1:v]colorkey=0x00FF00:0.3:0.2,scale=350:-1[avatar_clean];\
-        [0:v][avatar_clean]overlay=W-w-20:H-h-20:shortest=1[with_avatar];\
-        [with_avatar]drawbox=x=W-200:y=H-55:w=195:h=50:color=black@0.9:t=fill,\
-        drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=20:x=W-190:y=H-42[outv]" \
-      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k \
-      "${outputPath}"`
+    // FFmpeg Chroma-Key Filter (EINZEILIG für korrekte Ausführung)
+    // 1. colorkey entfernt grün (similarity=0.5 = aggressiver)
+    // 2. scale=300 Avatar kleiner
+    // 3. overlay: H-h+80 = Avatar tiefer (mehr vom Körper sichtbar)
+    // 4. drawbox + drawtext = EVIDENRA Logo über HeyGen
+    const filterComplex = [
+      '[1:v]colorkey=color=0x00FF00:similarity=0.5:blend=0.05,scale=300:-1[avatar_keyed]',
+      '[0:v][avatar_keyed]overlay=W-w-10:H-h+80:shortest=1[with_avatar]',
+      '[with_avatar]drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]'
+    ].join(';')
+
+    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "${filterComplex}" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k "${outputPath}"`
   } else {
     // Einfaches Picture-in-Picture ohne Chroma-Key
     ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
