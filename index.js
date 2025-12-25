@@ -1314,36 +1314,32 @@ app.post('/create-multi-format', async (req, res) => {
         console.log(`[Genesis] Conversion skipped or failed, using original`)
       }
 
-      // Schritt 3: Background zu Supabase hochladen
-      console.log(`[Genesis] Uploading background to Supabase...`)
-      const bgTimestamp = Date.now()
-      const bgFilename = `background-${format}-${bgTimestamp}.mp4`
+      // Schritt 3: Background DIREKT zu HeyGen hochladen (nicht Supabase!)
+      console.log(`[Genesis] Uploading background directly to HeyGen...`)
 
-      let backgroundUrl
+      let heygenAssetUrl
       try {
+        // Zuerst zu Supabase für public URL (HeyGen braucht URL)
+        const bgTimestamp = Date.now()
+        const bgFilename = `background-${format}-${bgTimestamp}.mp4`
         const videoBuffer = fs.readFileSync(backgroundPath)
         console.log(`[Genesis] Background size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
+        const { error: uploadError } = await supabase.storage
           .from('videos')
-          .upload(bgFilename, videoBuffer, {
-            contentType: 'video/mp4',
-            upsert: true
-          })
+          .upload(bgFilename, videoBuffer, { contentType: 'video/mp4', upsert: true })
 
-        if (uploadError) {
-          throw new Error(`Supabase upload error: ${uploadError.message}`)
-        }
+        if (uploadError) throw new Error(`Supabase upload error: ${uploadError.message}`)
 
-        const { data: urlData } = supabase.storage
-          .from('videos')
-          .getPublicUrl(bgFilename)
-
-        backgroundUrl = urlData.publicUrl
-        console.log(`[Genesis] Background uploaded: ${backgroundUrl}`)
+        const { data: urlData } = supabase.storage.from('videos').getPublicUrl(bgFilename)
+        heygenAssetUrl = urlData.publicUrl
+        console.log(`[Genesis] Background URL for HeyGen: ${heygenAssetUrl}`)
 
         // Lokale Datei löschen
         if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+
+        // Background nach Video-Erstellung löschen (als Cleanup-Marker speichern)
+        results[format] = { bgFilename }
       } catch (uploadErr) {
         console.error(`[Genesis] Upload failed for ${format}:`, uploadErr.message)
         if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
@@ -1351,14 +1347,16 @@ app.post('/create-multi-format', async (req, res) => {
         continue
       }
 
-      // Schritt 4: HeyGen Video MIT Background erstellen
-      console.log(`[Genesis] Creating HeyGen video with background...`)
-      const heygenResult = await createHeyGenVideoWithBackground(topic, backgroundUrl, format)
+      // Schritt 4: HeyGen Video MIT Background URL erstellen
+      console.log(`[Genesis] Creating HeyGen video with background URL...`)
+      const heygenResult = await createHeyGenVideoWithBackground(topic, heygenAssetUrl, format)
 
       if (!heygenResult.success) {
         results[format] = { success: false, error: heygenResult.error }
-        // Background löschen da nicht mehr benötigt
-        await supabase.storage.from('videos').remove([bgFilename])
+        // Background löschen
+        if (results[format]?.bgFilename) {
+          await supabase.storage.from('videos').remove([results[format].bgFilename])
+        }
         continue
       }
 
