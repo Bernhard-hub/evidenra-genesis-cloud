@@ -62,17 +62,18 @@ const VOICES = {
 }
 
 // ============================================
-// HINTERGRUNDBILDER (Stock Images - frei nutzbar)
+// HINTERGRUND FÜR AVATAR (Greenscreen für Compositing)
 // ============================================
+// Grüner Hintergrund für Chroma-Key
+const GREENSCREEN_BACKGROUND = { type: 'color', value: '#00FF00' }
+
+// Fallback-Hintergrundfarben (wenn kein Compositing)
 const BACKGROUNDS = [
   { type: 'color', value: '#1a1a2e' },  // Dunkelblau
   { type: 'color', value: '#0f0f23' },  // Fast Schwarz
   { type: 'color', value: '#1e3a5f' },  // Navy
   { type: 'color', value: '#2d1b4e' },  // Lila Dunkel
   { type: 'color', value: '#0a2540' },  // Mitternachtsblau
-  { type: 'color', value: '#1a1a1a' },  // Anthrazit
-  { type: 'color', value: '#0d2137' },  // Tiefblau
-  { type: 'color', value: '#1f1135' },  // Violett
 ]
 
 // ============================================
@@ -227,7 +228,7 @@ function getRandomBackground() {
 // ============================================
 // HEYGEN API
 // ============================================
-async function createHeyGenVideo(topic = 'auto') {
+async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
@@ -237,7 +238,9 @@ async function createHeyGenVideo(topic = 'auto') {
   const scriptKey = topic === 'auto' ? getDailyScript() : (SCRIPTS[topic] ? topic : getDailyScript())
   const script = SCRIPTS[scriptKey]
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
-  const background = getRandomBackground()
+
+  // Greenscreen für Compositing, sonst normale Hintergrundfarbe
+  const background = useGreenscreen ? GREENSCREEN_BACKGROUND : getRandomBackground()
 
   // WICHTIG: Stimme passend zum Avatar-Geschlecht!
   const voice = VOICES[avatar.gender] || VOICES.female
@@ -246,7 +249,7 @@ async function createHeyGenVideo(topic = 'auto') {
   console.log(`  - Script: ${scriptKey}`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
   console.log(`  - Voice: ${avatar.gender}`)
-  console.log(`  - Background: ${background.value}`)
+  console.log(`  - Background: ${useGreenscreen ? 'GREENSCREEN' : background.value}`)
 
   const payload = JSON.stringify({
     video_inputs: [{
@@ -254,7 +257,7 @@ async function createHeyGenVideo(topic = 'auto') {
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: 1.0
+        scale: 0.85  // Etwas kleiner für bessere Einpassung
       },
       voice: {
         type: 'text',
@@ -383,18 +386,51 @@ function downloadVideo(url, outputPath) {
   })
 }
 
-function compositeVideos(backgroundPath, avatarPath, outputPath) {
+function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = true) {
   console.log(`[Genesis] Compositing videos with FFmpeg...`)
   console.log(`  Background: ${backgroundPath}`)
   console.log(`  Avatar: ${avatarPath}`)
   console.log(`  Output: ${outputPath}`)
+  console.log(`  Mode: ${useChromaKey ? 'Chroma-Key + Logo Overlay' : 'Simple PIP'}`)
 
-  // Avatar als Picture-in-Picture unten rechts
-  // Background als Hauptvideo, Avatar verkleinert überlagert
-  const ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
-    -filter_complex "[1:v]scale=480:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
-    -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
-    "${outputPath}"`
+  let ffmpegCmd
+
+  if (useChromaKey) {
+    // PROFESSIONELLE LÖSUNG:
+    // 1. Greenscreen vom Avatar entfernen (Chroma-Key)
+    // 2. Avatar halbtransparent unten rechts platzieren
+    // 3. EVIDENRA Logo über HeyGen Watermark (unten rechts)
+
+    // Logo-Pfad (wird beim Start erstellt falls nicht vorhanden)
+    const logoPath = path.join(TEMP_DIR, 'evidenra-logo.png')
+
+    // Erstelle einfaches Text-Logo falls nicht vorhanden
+    if (!fs.existsSync(logoPath)) {
+      // FFmpeg kann kein Logo erstellen, verwende stattdessen ein farbiges Rechteck
+      console.log(`[Genesis] Creating logo overlay placeholder...`)
+    }
+
+    // FFmpeg Filter:
+    // [1:v] = Avatar Video
+    // chromakey: Entfernt grün (00FF00) mit Toleranz
+    // scale: Avatar auf 420px Breite
+    // overlay: Positioniert unten rechts mit Abstand
+    // drawbox: Schwarzes Rechteck über HeyGen Logo + EVIDENRA Text
+    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
+      -filter_complex "\
+        [1:v]chromakey=0x00FF00:0.15:0.1,scale=420:-1[avatar_clean];\
+        [0:v][avatar_clean]overlay=W-w-30:H-h-30:shortest=1[with_avatar];\
+        [with_avatar]drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,\
+        drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" \
+      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k \
+      "${outputPath}"`
+  } else {
+    // Einfaches Picture-in-Picture ohne Chroma-Key
+    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
+      -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
+      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
+      "${outputPath}"`
+  }
 
   try {
     execSync(ffmpegCmd, { stdio: 'pipe', timeout: 300000 })
@@ -402,7 +438,21 @@ function compositeVideos(backgroundPath, avatarPath, outputPath) {
     return outputPath
   } catch (err) {
     console.error(`[Genesis] FFmpeg error: ${err.message}`)
-    throw err
+    console.error(`[Genesis] Trying fallback without chroma-key...`)
+
+    // Fallback: Einfaches PIP ohne Chroma-Key
+    const fallbackCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
+      -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
+      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
+      "${outputPath}"`
+
+    try {
+      execSync(fallbackCmd, { stdio: 'pipe', timeout: 300000 })
+      console.log(`[Genesis] Fallback composite created: ${outputPath}`)
+      return outputPath
+    } catch (fallbackErr) {
+      throw fallbackErr
+    }
   }
 }
 
@@ -423,9 +473,11 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     backgroundPath = null
   }
 
-  // Schritt 2: HeyGen Avatar erstellen
+  // Schritt 2: HeyGen Avatar erstellen (mit Greenscreen für Compositing!)
+  const useGreenscreen = backgroundPath !== null // Greenscreen nur wenn wir compositen
   console.log(`[Genesis] Step 2: Creating HeyGen avatar video...`)
-  const heygenResult = await createHeyGenVideo(topic)
+  console.log(`[Genesis]   Greenscreen Mode: ${useGreenscreen ? 'YES' : 'NO'}`)
+  const heygenResult = await createHeyGenVideo(topic, useGreenscreen)
   if (!heygenResult.success) {
     const errorMsg = typeof heygenResult.error === 'string'
       ? heygenResult.error
@@ -444,16 +496,36 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
 
   let finalPath
   if (backgroundPath && fs.existsSync(backgroundPath)) {
-    // Schritt 4: Videos kombinieren
-    console.log(`[Genesis] Step 4: Compositing videos...`)
+    // Schritt 4: Videos kombinieren mit Chroma-Key + Logo
+    console.log(`[Genesis] Step 4: Compositing with Chroma-Key + Logo Overlay...`)
     finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
-    compositeVideos(backgroundPath, avatarPath, finalPath)
+    compositeVideos(backgroundPath, avatarPath, finalPath, true) // true = use chroma-key
 
     // Cleanup Hintergrund
     fs.unlinkSync(backgroundPath)
+    // Cleanup Avatar (wurde in finalPath integriert)
+    if (avatarPath !== finalPath && fs.existsSync(avatarPath)) {
+      fs.unlinkSync(avatarPath)
+    }
   } else {
-    // Nur Avatar (kein Hintergrund)
-    finalPath = avatarPath
+    // Nur Avatar (kein Hintergrund) - füge trotzdem Logo hinzu
+    console.log(`[Genesis] Step 4: Adding logo overlay to avatar...`)
+    finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
+
+    // Einfaches Logo-Overlay auf Avatar
+    const logoCmd = `ffmpeg -y -i "${avatarPath}" \
+      -filter_complex "drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,\
+      drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" \
+      -map "[outv]" -map 0:a -c:v libx264 -preset fast -crf 21 -c:a copy \
+      "${finalPath}"`
+
+    try {
+      execSync(logoCmd, { stdio: 'pipe', timeout: 120000 })
+      fs.unlinkSync(avatarPath)
+    } catch (err) {
+      console.log(`[Genesis] Logo overlay failed, using original avatar`)
+      finalPath = avatarPath
+    }
   }
 
   return {
