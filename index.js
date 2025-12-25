@@ -586,8 +586,8 @@ async function uploadVideoToHeyGen(videoPath) {
   })
 }
 
-// Avatar Video MIT Video-Background erstellen (kein Chromakey nötig!)
-async function createHeyGenVideoWithBackground(topic = 'auto', videoAssetId) {
+// Avatar Video MIT Video-URL als Background erstellen (kein Chromakey nötig!)
+async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
   const apiKey = process.env.HEYGEN_API_KEY
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
@@ -618,10 +618,10 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoAssetId) {
   const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
   const voice = VOICES[avatar.gender] || VOICES.female
 
-  console.log(`[Genesis] Creating video WITH VIDEO BACKGROUND:`)
+  console.log(`[Genesis] Creating video WITH VIDEO URL BACKGROUND:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
-  console.log(`  - Background: VIDEO (Asset ID: ${videoAssetId})`)
+  console.log(`  - Background: ${videoUrl}`)
 
   const payload = JSON.stringify({
     video_inputs: [{
@@ -639,8 +639,8 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoAssetId) {
       },
       background: {
         type: 'video',
-        video_asset_id: videoAssetId,
-        play_style: 'loop'  // Video wiederholen falls Avatar länger spricht
+        url: videoUrl,  // Direkte URL statt asset_id!
+        play_style: 'loop'
       }
     }],
     dimension: { width: 1280, height: 720 },
@@ -821,43 +821,57 @@ async function createFullVideo(topic = 'auto', demoType = 'demo') {
     console.log(`[Genesis] Already MP4 or conversion not needed`)
   }
 
-  // Schritt 3: Video zu HeyGen hochladen
-  console.log(`[Genesis] Step 3: Uploading video to HeyGen as background asset...`)
-  let videoAssetId
+  // Schritt 3: Video zu Supabase hochladen (für HeyGen als URL)
+  console.log(`[Genesis] Step 3: Uploading background to Supabase...`)
+  const bgTimestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const bgFilename = `background-${bgTimestamp}.mp4`
+
+  let backgroundUrl
   try {
-    videoAssetId = await uploadVideoToHeyGen(backgroundPath)
-    console.log(`[Genesis] Upload successful! Asset ID: ${videoAssetId}`)
+    const videoBuffer = fs.readFileSync(backgroundPath)
+    console.log(`[Genesis] Background size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+
+    const { data, error } = await supabase.storage
+      .from('videos')
+      .upload(bgFilename, videoBuffer, {
+        contentType: 'video/mp4',
+        upsert: true
+      })
+
+    if (error) {
+      throw new Error(`Supabase upload error: ${error.message}`)
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('videos')
+      .getPublicUrl(bgFilename)
+
+    backgroundUrl = urlData.publicUrl
+    console.log(`[Genesis] Background uploaded: ${backgroundUrl}`)
+
+    // Lokale Datei löschen
+    fs.unlinkSync(backgroundPath)
   } catch (err) {
-    console.error(`[Genesis] Upload FAILED:`, err.message)
-    // Fallback: Green Screen + Chromakey (alter Weg)
-    console.log(`[Genesis] Falling back to green screen method...`)
-    const fallbackResult = await createHeyGenVideo(topic, true)
+    console.error(`[Genesis] Supabase upload FAILED:`, err.message)
+    // Fallback: Standard HeyGen Video ohne Hintergrund
+    console.log(`[Genesis] Falling back to standard HeyGen video...`)
+    const fallbackResult = await createHeyGenVideo(topic, false)
     if (!fallbackResult.success) {
       throw new Error(fallbackResult.error || 'Fallback failed')
     }
     const avatarUrl = await waitForVideo(fallbackResult.videoId)
-    const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.mp4`)
-    await downloadVideo(avatarUrl, avatarPath)
-
-    // Versuche Chromakey
-    const finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
-    compositeVideos(backgroundPath, avatarPath, finalPath, true)
-
-    fs.unlinkSync(backgroundPath)
-    fs.unlinkSync(avatarPath)
-
     return {
-      videoPath: finalPath,
+      videoPath: null,
       avatarUrl,
       avatar: fallbackResult.avatar,
       script: fallbackResult.script,
-      mode: 'chromakey_fallback'
+      mode: 'standard_fallback'
     }
   }
 
-  // Schritt 4: HeyGen Video mit unserem Video als Hintergrund erstellen
-  console.log(`[Genesis] Step 4: Creating HeyGen video with our recording as background...`)
-  const heygenResult = await createHeyGenVideoWithBackground(topic, videoAssetId)
+  // Schritt 4: HeyGen Video mit Supabase-URL als Hintergrund erstellen
+  console.log(`[Genesis] Step 4: Creating HeyGen video with Supabase URL as background...`)
+  const heygenResult = await createHeyGenVideoWithBackground(topic, backgroundUrl)
 
   if (!heygenResult.success) {
     throw new Error(heygenResult.error || 'HeyGen video with background failed')
