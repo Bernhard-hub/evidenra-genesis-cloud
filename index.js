@@ -569,61 +569,55 @@ function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = 
   let ffmpegCmd
 
   if (useChromaKey) {
-    // PROFESSIONELLE LÖSUNG:
-    // 1. Greenscreen vom Avatar entfernen (Chroma-Key)
-    // 2. Avatar halbtransparent unten rechts platzieren
-    // 3. EVIDENRA Logo über HeyGen Watermark (unten rechts)
+    console.log(`[Genesis] Applying green screen removal with colorkey filter...`)
 
-    // Logo-Pfad (wird beim Start erstellt falls nicht vorhanden)
-    const logoPath = path.join(TEMP_DIR, 'evidenra-logo.png')
-
-    // Erstelle einfaches Text-Logo falls nicht vorhanden
-    if (!fs.existsSync(logoPath)) {
-      // FFmpeg kann kein Logo erstellen, verwende stattdessen ein farbiges Rechteck
-      console.log(`[Genesis] Creating logo overlay placeholder...`)
-    }
-
-    // FFmpeg Chroma-Key Filter - chromakey für professionelle Green Screen Entfernung
-    // chromakey ist besser als colorkey für Video-Greenscreens
-    // HeyGen verwendet verschiedene Grüntöne, daher mehrere Filter
+    // COLORKEY Filter - zuverlässiger als chromakey
+    // HeyGen verwendet reines Grün #00FF00
+    // similarity=0.4 = aggressiv, blend=0.1 = weiche Kanten
     const filterComplex = [
-      // Schritt 1: chromakey für HeyGen Green Screen (similarity=0.3 = moderate, blend=0.1 = weiche Kanten)
-      '[1:v]chromakey=color=green:similarity=0.3:blend=0.1,scale=300:-1[avatar_keyed]',
-      // Schritt 2: Avatar über Hintergrund legen
+      '[1:v]colorkey=0x00FF00:0.4:0.1,scale=300:-1[avatar_keyed]',
       '[0:v][avatar_keyed]overlay=W-w-10:H-h+80:shortest=1[with_avatar]',
-      // Schritt 3: EVIDENRA Logo über HeyGen Watermark
       '[with_avatar]drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]'
     ].join(';')
 
     ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "${filterComplex}" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k "${outputPath}"`
   } else {
-    // Einfaches Picture-in-Picture ohne Chroma-Key
-    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
-      -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
-      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
-      "${outputPath}"`
+    ffmpegCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k "${outputPath}"`
   }
 
   try {
-    execSync(ffmpegCmd, { stdio: 'pipe', timeout: 300000 })
-    console.log(`[Genesis] Composite video created: ${outputPath}`)
+    console.log(`[Genesis] Running FFmpeg command...`)
+    const result = execSync(ffmpegCmd, { stdio: 'pipe', timeout: 300000 })
+    console.log(`[Genesis] Composite video created successfully: ${outputPath}`)
     return outputPath
   } catch (err) {
-    console.error(`[Genesis] FFmpeg error: ${err.message}`)
-    console.error(`[Genesis] Trying fallback without chroma-key...`)
+    console.error(`[Genesis] FFmpeg colorkey FAILED:`, err.message)
+    console.error(`[Genesis] stderr:`, err.stderr?.toString() || 'no stderr')
 
-    // Fallback: Einfaches PIP ohne Chroma-Key
-    const fallbackCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" \
-      -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" \
-      -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k \
-      "${outputPath}"`
+    // Fallback 1: Versuche chromakey statt colorkey
+    console.log(`[Genesis] Trying chromakey as fallback...`)
+    const chromakeyFilter = [
+      '[1:v]chromakey=green:0.4:0.1,scale=300:-1[avatar_keyed]',
+      '[0:v][avatar_keyed]overlay=W-w-10:H-h+80:shortest=1[with_avatar]',
+      '[with_avatar]drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]'
+    ].join(';')
+
+    const chromakeyCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "${chromakeyFilter}" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k "${outputPath}"`
 
     try {
-      execSync(fallbackCmd, { stdio: 'pipe', timeout: 300000 })
-      console.log(`[Genesis] Fallback composite created: ${outputPath}`)
+      execSync(chromakeyCmd, { stdio: 'pipe', timeout: 300000 })
+      console.log(`[Genesis] Chromakey fallback succeeded!`)
       return outputPath
-    } catch (fallbackErr) {
-      throw fallbackErr
+    } catch (chromakeyErr) {
+      console.error(`[Genesis] Chromakey also FAILED:`, chromakeyErr.message)
+
+      // Fallback 2: Ohne Greenscreen - aber nur als letzte Option
+      console.error(`[Genesis] Using simple overlay WITHOUT green screen removal`)
+      const simpleCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "[1:v]scale=400:-1[avatar];[0:v][avatar]overlay=W-w-20:H-h-20:shortest=1[outv]" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k "${outputPath}"`
+
+      execSync(simpleCmd, { stdio: 'pipe', timeout: 300000 })
+      console.log(`[Genesis] Simple overlay created (NO green removal)`)
+      return outputPath
     }
   }
 }
