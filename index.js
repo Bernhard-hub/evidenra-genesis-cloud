@@ -1,11 +1,15 @@
 /**
- * EVIDENRA Genesis Cloud - Video Generation Engine v2.0
+ * EVIDENRA Genesis Cloud - Video Generation Engine v3.0
  * ======================================================
  * Railway-deployed video creation service
- * - Screen Recording mit Playwright
- * - HeyGen Avatar Videos
- * - FFmpeg Compositing (Avatar über Hintergrund)
- * - 14 verschiedene Scripts (täglich rotierend)
+ *
+ * NEU in v3.0: HeyGen Video-Background Integration
+ * - Playwright nimmt Website auf
+ * - Video wird zu HeyGen hochgeladen als Background
+ * - HeyGen rendert Avatar ÜBER dem Video (kein Chromakey nötig!)
+ * - Perfekte Freistellung durch HeyGen selbst
+ *
+ * - 21 verschiedene Scripts (14 EN + 7 DE, täglich rotierend)
  * - Automatisches Aufräumen alter Videos
  */
 
@@ -16,6 +20,7 @@ const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
 const { createClient } = require('@supabase/supabase-js')
+const FormData = require('form-data')
 const ScreenRecorder = require('./recorder')
 
 const app = express()
@@ -532,6 +537,155 @@ async function waitForVideo(videoId, maxWaitMs = 600000) {
 }
 
 // ============================================
+// HEYGEN ASSET UPLOAD (für Video-Backgrounds)
+// ============================================
+async function uploadVideoToHeyGen(videoPath) {
+  const apiKey = process.env.HEYGEN_API_KEY
+  if (!apiKey) {
+    throw new Error('HEYGEN_API_KEY not configured')
+  }
+
+  console.log(`[Genesis] Uploading video to HeyGen: ${videoPath}`)
+
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', fs.createReadStream(videoPath))
+
+    const req = https.request({
+      hostname: 'upload.heygen.com',
+      path: '/v1/asset',
+      method: 'POST',
+      headers: {
+        ...form.getHeaders(),
+        'X-Api-Key': apiKey
+      }
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          console.log(`[Genesis] HeyGen Upload Response:`, JSON.stringify(result).substring(0, 300))
+
+          if (result.data?.id || result.data?.asset_id) {
+            const assetId = result.data.id || result.data.asset_id
+            console.log(`[Genesis] Video uploaded successfully! Asset ID: ${assetId}`)
+            resolve(assetId)
+          } else {
+            console.error(`[Genesis] Upload failed:`, result)
+            reject(new Error(result.error?.message || 'Upload failed'))
+          }
+        } catch (e) {
+          reject(new Error(`Parse error: ${e.message}, data: ${data.substring(0, 200)}`))
+        }
+      })
+    })
+
+    req.on('error', reject)
+    form.pipe(req)
+  })
+}
+
+// Avatar Video MIT Video-Background erstellen (kein Chromakey nötig!)
+async function createHeyGenVideoWithBackground(topic = 'auto', videoAssetId) {
+  const apiKey = process.env.HEYGEN_API_KEY
+  if (!apiKey) {
+    return { success: false, error: 'HEYGEN_API_KEY not configured' }
+  }
+
+  // Script auswählen
+  let scriptKey, script, lang
+  if (topic === 'auto') {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  } else if (SCRIPTS[topic]) {
+    scriptKey = topic
+    script = SCRIPTS[topic]
+    lang = 'en'
+  } else if (SCRIPTS_DE[topic]) {
+    scriptKey = topic
+    script = SCRIPTS_DE[topic]
+    lang = 'de'
+  } else {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  }
+
+  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
+  const voice = VOICES[avatar.gender] || VOICES.female
+
+  console.log(`[Genesis] Creating video WITH VIDEO BACKGROUND:`)
+  console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
+  console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
+  console.log(`  - Background: VIDEO (Asset ID: ${videoAssetId})`)
+
+  const payload = JSON.stringify({
+    video_inputs: [{
+      character: {
+        type: 'avatar',
+        avatar_id: avatar.id,
+        avatar_style: 'normal',
+        scale: 0.5  // Avatar kleiner, damit Video-Hintergrund gut sichtbar
+      },
+      voice: {
+        type: 'text',
+        input_text: script,
+        voice_id: voice,
+        speed: 1.0
+      },
+      background: {
+        type: 'video',
+        video_asset_id: videoAssetId,
+        play_style: 'loop'  // Video wiederholen falls Avatar länger spricht
+      }
+    }],
+    dimension: { width: 1280, height: 720 },
+    aspect_ratio: '16:9'
+  })
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.heygen.com',
+      path: '/v2/video/generate',
+      method: 'POST',
+      headers: {
+        'X-Api-Key': apiKey,
+        'Content-Type': 'application/json'
+      }
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          console.log(`[Genesis] HeyGen Video Response:`, JSON.stringify(result).substring(0, 300))
+
+          if (result.data?.video_id) {
+            resolve({
+              success: true,
+              videoId: result.data.video_id,
+              avatar: avatar.name,
+              script: scriptKey
+            })
+          } else {
+            resolve({ success: false, error: result.error?.message || JSON.stringify(result) })
+          }
+        } catch (e) {
+          resolve({ success: false, error: e.message })
+        }
+      })
+    })
+    req.on('error', (e) => resolve({ success: false, error: e.message }))
+    req.write(payload)
+    req.end()
+  })
+}
+
+// ============================================
 // SCREEN RECORDING
 // ============================================
 async function recordBackground(demoType = 'demo') {
@@ -623,105 +777,112 @@ function compositeVideos(backgroundPath, avatarPath, outputPath, useChromaKey = 
 }
 
 async function createFullVideo(topic = 'auto', demoType = 'demo') {
-  console.log(`[Genesis] === FULL VIDEO PIPELINE ===`)
+  console.log(`[Genesis] === FULL VIDEO PIPELINE v3.0 ===`)
   console.log(`  Topic: ${topic}`)
   console.log(`  Demo: ${demoType}`)
+  console.log(`  Mode: HeyGen Video-Background (KEIN Chromakey!)`)
 
-  // Schritt 1: Hintergrund-Video aufnehmen
-  console.log(`[Genesis] Step 1: Recording background...`)
+  // Schritt 1: Hintergrund-Video aufnehmen mit Playwright
+  console.log(`[Genesis] Step 1: Recording EVIDENRA website...`)
   let backgroundPath
   try {
     backgroundPath = await recordBackground(demoType)
-    console.log(`[Genesis] Background recorded successfully: ${backgroundPath}`)
+    console.log(`[Genesis] Background recorded: ${backgroundPath}`)
   } catch (err) {
-    console.error(`[Genesis] Background recording FAILED:`, err.message)
-    console.error(`[Genesis] Full error:`, err.stack)
-    backgroundPath = null
-  }
-
-  // Schritt 2: HeyGen Avatar erstellen
-  // PRIORITÄT: WebM mit transparentem Hintergrund (kein Chroma-Key nötig!)
-  console.log(`[Genesis] Step 2: Creating HeyGen avatar video...`)
-  console.log(`[Genesis]   Trying WebM with transparent background first...`)
-
-  let heygenResult = await createHeyGenWebM(topic)
-  let isWebM = heygenResult.success && heygenResult.format === 'webm'
-
-  // Fallback auf Green Screen wenn WebM fehlschlägt
-  if (!heygenResult.success) {
-    console.log(`[Genesis]   WebM not available, falling back to green screen...`)
-    heygenResult = await createHeyGenVideo(topic, true) // true = greenscreen
-    isWebM = false
-  }
-
-  if (!heygenResult.success) {
-    const errorMsg = typeof heygenResult.error === 'string'
-      ? heygenResult.error
-      : JSON.stringify(heygenResult.error) || 'HeyGen failed'
-    throw new Error(errorMsg)
-  }
-
-  // Auf HeyGen warten
-  console.log(`[Genesis] Step 3: Waiting for HeyGen...`)
-  const avatarUrl = await waitForVideo(heygenResult.videoId)
-
-  // Avatar herunterladen (WebM oder MP4)
-  const avatarExt = isWebM ? 'webm' : 'mp4'
-  const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.${avatarExt}`)
-  await downloadVideo(avatarUrl, avatarPath)
-  console.log(`[Genesis] Avatar downloaded: ${avatarPath} (${isWebM ? 'WebM transparent' : 'MP4 greenscreen'})`)
-
-  let finalPath
-  if (backgroundPath && fs.existsSync(backgroundPath)) {
-    finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
-
-    if (isWebM) {
-      // WebM mit transparentem Hintergrund - einfaches Overlay ohne Chroma-Key!
-      console.log(`[Genesis] Step 4: Compositing WebM (transparent) over background...`)
-      const overlayCmd = `ffmpeg -y -i "${backgroundPath}" -i "${avatarPath}" -filter_complex "[1:v]scale=350:-1[avatar];[0:v][avatar]overlay=W-w-10:H-h+60:shortest=1,drawbox=x=W-170:y=H-35:w=165:h=30:color=black@0.95:t=fill,drawtext=text=EVIDENRA.com:fontcolor=white:fontsize=14:x=W-165:y=H-28[outv]" -map "[outv]" -map 1:a -c:v libx264 -preset fast -crf 21 -c:a aac -b:a 192k "${finalPath}"`
-
-      try {
-        execSync(overlayCmd, { stdio: 'pipe', timeout: 300000 })
-        console.log(`[Genesis] WebM composite created successfully!`)
-      } catch (err) {
-        console.error(`[Genesis] WebM overlay failed:`, err.message)
-        // Fallback: Chromakey
-        compositeVideos(backgroundPath, avatarPath, finalPath, true)
-      }
-    } else {
-      // Green Screen - Chroma-Key nötig
-      console.log(`[Genesis] Step 4: Compositing with Chroma-Key + Logo Overlay...`)
-      compositeVideos(backgroundPath, avatarPath, finalPath, true)
+    console.error(`[Genesis] Recording FAILED:`, err.message)
+    // Fallback: Video ohne Hintergrund (normales HeyGen Video)
+    console.log(`[Genesis] Falling back to standard HeyGen video...`)
+    const fallbackResult = await createHeyGenVideo(topic, false)
+    if (!fallbackResult.success) {
+      throw new Error(fallbackResult.error || 'HeyGen fallback failed')
     }
+    const avatarUrl = await waitForVideo(fallbackResult.videoId)
+    return {
+      videoPath: null,
+      avatarUrl,
+      avatar: fallbackResult.avatar,
+      script: fallbackResult.script,
+      mode: 'fallback'
+    }
+  }
 
-    // Cleanup Hintergrund
+  // Schritt 2: WebM zu MP4 konvertieren (HeyGen bevorzugt MP4)
+  console.log(`[Genesis] Step 2: Converting to MP4...`)
+  const mp4Path = backgroundPath.replace('.webm', '.mp4')
+  try {
+    execSync(`ffmpeg -y -i "${backgroundPath}" -c:v libx264 -preset fast -crf 23 "${mp4Path}"`, {
+      stdio: 'pipe',
+      timeout: 120000
+    })
+    fs.unlinkSync(backgroundPath) // WebM löschen
+    backgroundPath = mp4Path
+    console.log(`[Genesis] Converted to: ${mp4Path}`)
+  } catch (err) {
+    console.log(`[Genesis] Already MP4 or conversion not needed`)
+  }
+
+  // Schritt 3: Video zu HeyGen hochladen
+  console.log(`[Genesis] Step 3: Uploading video to HeyGen as background asset...`)
+  let videoAssetId
+  try {
+    videoAssetId = await uploadVideoToHeyGen(backgroundPath)
+    console.log(`[Genesis] Upload successful! Asset ID: ${videoAssetId}`)
+  } catch (err) {
+    console.error(`[Genesis] Upload FAILED:`, err.message)
+    // Fallback: Green Screen + Chromakey (alter Weg)
+    console.log(`[Genesis] Falling back to green screen method...`)
+    const fallbackResult = await createHeyGenVideo(topic, true)
+    if (!fallbackResult.success) {
+      throw new Error(fallbackResult.error || 'Fallback failed')
+    }
+    const avatarUrl = await waitForVideo(fallbackResult.videoId)
+    const avatarPath = path.join(TEMP_DIR, `avatar-${Date.now()}.mp4`)
+    await downloadVideo(avatarUrl, avatarPath)
+
+    // Versuche Chromakey
+    const finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
+    compositeVideos(backgroundPath, avatarPath, finalPath, true)
+
     fs.unlinkSync(backgroundPath)
-    // Cleanup Avatar (wurde in finalPath integriert)
-    if (avatarPath !== finalPath && fs.existsSync(avatarPath)) {
-      fs.unlinkSync(avatarPath)
-    }
-  } else {
-    // Nur Avatar (kein Hintergrund) - füge trotzdem Logo hinzu
-    console.log(`[Genesis] Step 4: Adding logo overlay to avatar...`)
-    finalPath = path.join(TEMP_DIR, `final-${Date.now()}.mp4`)
+    fs.unlinkSync(avatarPath)
 
-    // Einfaches Logo-Overlay auf Avatar
-    const logoCmd = `ffmpeg -y -i "${avatarPath}" -filter_complex "drawbox=x=W-180:y=H-45:w=175:h=40:color=black@0.85:t=fill,drawtext=text='EVIDENRA.com':fontcolor=white:fontsize=18:x=W-170:y=H-35[outv]" -map "[outv]" -map 0:a -c:v libx264 -preset fast -crf 21 -c:a copy "${finalPath}"`
-
-    try {
-      execSync(logoCmd, { stdio: 'pipe', timeout: 120000 })
-      fs.unlinkSync(avatarPath)
-    } catch (err) {
-      console.log(`[Genesis] Logo overlay failed, using original avatar`)
-      finalPath = avatarPath
+    return {
+      videoPath: finalPath,
+      avatarUrl,
+      avatar: fallbackResult.avatar,
+      script: fallbackResult.script,
+      mode: 'chromakey_fallback'
     }
   }
+
+  // Schritt 4: HeyGen Video mit unserem Video als Hintergrund erstellen
+  console.log(`[Genesis] Step 4: Creating HeyGen video with our recording as background...`)
+  const heygenResult = await createHeyGenVideoWithBackground(topic, videoAssetId)
+
+  if (!heygenResult.success) {
+    throw new Error(heygenResult.error || 'HeyGen video with background failed')
+  }
+
+  // Schritt 5: Auf HeyGen warten
+  console.log(`[Genesis] Step 5: Waiting for HeyGen to render...`)
+  const finalVideoUrl = await waitForVideo(heygenResult.videoId)
+
+  // Hintergrund-Video löschen (nicht mehr benötigt)
+  if (fs.existsSync(backgroundPath)) {
+    fs.unlinkSync(backgroundPath)
+  }
+
+  console.log(`[Genesis] === VIDEO COMPLETE ===`)
+  console.log(`  Avatar: ${heygenResult.avatar}`)
+  console.log(`  Script: ${heygenResult.script}`)
+  console.log(`  Mode: HeyGen Video-Background (perfekte Freistellung!)`)
 
   return {
-    videoPath: finalPath,
-    avatarUrl,
+    videoPath: null,  // Video ist bei HeyGen, wird direkt heruntergeladen
+    avatarUrl: finalVideoUrl,
     avatar: heygenResult.avatar,
-    script: heygenResult.script
+    script: heygenResult.script,
+    mode: 'heygen_video_background'
   }
 }
 
@@ -898,7 +1059,7 @@ app.get('/videos', async (req, res) => {
   res.json(data)
 })
 
-// Create FULL video (Background Recording + Avatar + Composite)
+// Create FULL video (Background Recording + HeyGen Video-Background)
 app.post('/create-full-video', async (req, res) => {
   const { topic = 'auto', demoType = 'demo' } = req.body
   const authHeader = req.headers.authorization
@@ -907,20 +1068,41 @@ app.post('/create-full-video', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  console.log(`[Genesis] === FULL VIDEO REQUEST ===`)
+  console.log(`[Genesis] === FULL VIDEO REQUEST v3.0 ===`)
   console.log(`  Topic: ${topic}, Demo: ${demoType}`)
 
   try {
-    // Full Pipeline: Record + Avatar + Composite
+    // Full Pipeline: Record → Upload to HeyGen → HeyGen renders with video background
     const result = await createFullVideo(topic, demoType)
 
-    // Upload final video to Supabase
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const filename = `genesis-full-${result.script}-${timestamp}.mp4`
 
-    console.log(`[Genesis] Uploading final video to Supabase...`)
-    const videoBuffer = fs.readFileSync(result.videoPath)
+    let videoBuffer
 
+    // Neuer Flow: Video kommt direkt von HeyGen (avatarUrl)
+    if (result.avatarUrl && !result.videoPath) {
+      console.log(`[Genesis] Downloading final video from HeyGen...`)
+      videoBuffer = await new Promise((resolve, reject) => {
+        https.get(result.avatarUrl, (res) => {
+          const chunks = []
+          res.on('data', chunk => chunks.push(chunk))
+          res.on('end', () => resolve(Buffer.concat(chunks)))
+          res.on('error', reject)
+        }).on('error', reject)
+      })
+      console.log(`[Genesis] Downloaded ${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB`)
+    } else if (result.videoPath && fs.existsSync(result.videoPath)) {
+      // Alter Flow: Lokale Datei (Chromakey Fallback)
+      console.log(`[Genesis] Reading local video file...`)
+      videoBuffer = fs.readFileSync(result.videoPath)
+      fs.unlinkSync(result.videoPath)
+    } else {
+      throw new Error('No video available in result')
+    }
+
+    // Upload to Supabase
+    console.log(`[Genesis] Uploading to Supabase...`)
     const { data, error } = await supabase.storage
       .from('videos')
       .upload(filename, videoBuffer, {
@@ -958,14 +1140,9 @@ app.post('/create-full-video', async (req, res) => {
       created_at: new Date().toISOString()
     })
 
-    // Cleanup temp files
-    if (fs.existsSync(result.videoPath)) {
-      fs.unlinkSync(result.videoPath)
-    }
-
     res.json({
       success: true,
-      mode: 'full',
+      mode: result.mode || 'heygen_video_background',
       avatar: result.avatar,
       script: result.script,
       supabaseUrl,
@@ -984,8 +1161,8 @@ app.post('/create-full-video', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════╗
-║  EVIDENRA Genesis Cloud v2.0                       ║
-║  Full Video Generation Engine                      ║
+║  EVIDENRA Genesis Cloud v3.0                       ║
+║  HeyGen Video-Background Integration               ║
 ╠════════════════════════════════════════════════════╣
 ║  Port: ${PORT}                                        ║
 ║  Scripts: ${SCRIPT_KEYS.length} verschiedene                          ║
