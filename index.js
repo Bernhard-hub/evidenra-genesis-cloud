@@ -472,14 +472,15 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false) {
               script: scriptKey
             })
           } else {
-            resolve({ success: false, error: result.error?.message || 'HeyGen error' })
+            const errDetail = result.error?.message || result.message || JSON.stringify(result.error || result) || 'HeyGen error'
+            resolve({ success: false, error: errDetail })
           }
         } catch (e) {
-          resolve({ success: false, error: e.message })
+          resolve({ success: false, error: e?.message || JSON.stringify(e) || 'Parse error' })
         }
       })
     })
-    req.on('error', (e) => resolve({ success: false, error: e.message }))
+    req.on('error', (e) => resolve({ success: false, error: e?.message || JSON.stringify(e) || 'Request error' }))
     req.write(payload)
     req.end()
   })
@@ -676,14 +677,15 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl) {
               script: scriptKey
             })
           } else {
-            resolve({ success: false, error: result.error?.message || JSON.stringify(result) })
+            const errDetail = result.error?.message || result.message || JSON.stringify(result.error || result) || 'HeyGen video-bg error'
+            resolve({ success: false, error: errDetail })
           }
         } catch (e) {
-          resolve({ success: false, error: e.message })
+          resolve({ success: false, error: e?.message || JSON.stringify(e) || 'Parse error' })
         }
       })
     })
-    req.on('error', (e) => resolve({ success: false, error: e.message }))
+    req.on('error', (e) => resolve({ success: false, error: e?.message || JSON.stringify(e) || 'Request error' }))
     req.write(payload)
     req.end()
   })
@@ -984,6 +986,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'EVIDENRA Genesis Cloud',
+    version: '3.2.1',  // Error serialization fix
     todaysScript: getDailyScript(),
     totalScripts: SCRIPT_KEYS.length
   })
@@ -1054,7 +1057,8 @@ app.post('/create-video', async (req, res) => {
 
   } catch (e) {
     console.error('[Genesis] Error:', e)
-    res.status(500).json({ error: e.message })
+    const errorMsg = e?.message || JSON.stringify(e) || 'Unknown error'
+    res.status(500).json({ error: errorMsg })
   }
 })
 
