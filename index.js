@@ -1543,6 +1543,276 @@ async function sendDiscordNotification(message) {
   })
 }
 
+// ============================================
+// YOUTUBE UPLOAD
+// ============================================
+async function uploadToYouTube(videoUrl, title, description) {
+  const clientId = process.env.YOUTUBE_CLIENT_ID
+  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET
+  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN
+
+  if (!clientId || !refreshToken) {
+    console.log('[YouTube] Missing credentials')
+    return { success: false, error: 'YouTube not configured' }
+  }
+
+  try {
+    // 1. Refresh Access Token
+    console.log('[YouTube] Refreshing access token...')
+    const tokenBody = `refresh_token=${encodeURIComponent(refreshToken)}&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret || '')}&grant_type=refresh_token`
+
+    const tokenResult = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'oauth2.googleapis.com',
+        path: '/token',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      }, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { resolve({}) }
+        })
+      })
+      req.on('error', reject)
+      req.write(tokenBody)
+      req.end()
+    })
+
+    if (!tokenResult.access_token) {
+      return { success: false, error: 'Token refresh failed' }
+    }
+    console.log('[YouTube] Token refreshed')
+
+    // 2. Download video
+    console.log('[YouTube] Downloading video...')
+    const videoBuffer = await new Promise((resolve, reject) => {
+      https.get(videoUrl, (res) => {
+        const chunks = []
+        res.on('data', chunk => chunks.push(chunk))
+        res.on('end', () => resolve(Buffer.concat(chunks)))
+        res.on('error', reject)
+      }).on('error', reject)
+    })
+    console.log('[YouTube] Video downloaded:', videoBuffer.length, 'bytes')
+
+    // 3. Init resumable upload
+    const metadata = {
+      snippet: {
+        title: title,
+        description: description,
+        tags: ['EVIDENRA', 'Qualitative Research', 'AI', 'PhD', 'Academia'],
+        categoryId: '28'
+      },
+      status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
+    }
+
+    const uploadUrl = await new Promise((resolve) => {
+      const req = https.request({
+        hostname: 'www.googleapis.com',
+        path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${tokenResult.access_token}`,
+          'Content-Type': 'application/json',
+          'X-Upload-Content-Length': videoBuffer.length,
+          'X-Upload-Content-Type': 'video/mp4'
+        }
+      }, (res) => {
+        resolve(res.headers['location'] || null)
+      })
+      req.on('error', () => resolve(null))
+      req.write(JSON.stringify(metadata))
+      req.end()
+    })
+
+    if (!uploadUrl) {
+      return { success: false, error: 'Upload init failed' }
+    }
+    console.log('[YouTube] Upload initialized')
+
+    // 4. Upload video
+    const url = new URL(uploadUrl)
+    const uploadResult = await new Promise((resolve) => {
+      const req = https.request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Content-Length': videoBuffer.length
+        }
+      }, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { resolve(null) }
+        })
+      })
+      req.on('error', () => resolve(null))
+      req.write(videoBuffer)
+      req.end()
+    })
+
+    if (uploadResult && uploadResult.id) {
+      const youtubeUrl = `https://www.youtube.com/watch?v=${uploadResult.id}`
+      console.log('[YouTube] Upload success:', youtubeUrl)
+      return { success: true, youtubeUrl, videoId: uploadResult.id }
+    }
+
+    return { success: false, error: 'Upload failed' }
+  } catch (e) {
+    console.error('[YouTube] Error:', e.message)
+    return { success: false, error: e.message }
+  }
+}
+
+// ============================================
+// TWITTER POST
+// ============================================
+const crypto = require('crypto')
+
+function twitterOAuth(method, url, params = {}) {
+  const oauth = {
+    oauth_consumer_key: process.env.TWITTER_API_KEY,
+    oauth_nonce: crypto.randomBytes(16).toString('hex'),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_token: process.env.TWITTER_ACCESS_TOKEN,
+    oauth_version: '1.0'
+  }
+
+  const allParams = { ...oauth, ...params }
+  const sortedParams = Object.keys(allParams).sort().map(k =>
+    `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`
+  ).join('&')
+
+  const baseString = [method, encodeURIComponent(url), encodeURIComponent(sortedParams)].join('&')
+  const signingKey = `${encodeURIComponent(process.env.TWITTER_API_SECRET)}&${encodeURIComponent(process.env.TWITTER_ACCESS_TOKEN_SECRET)}`
+  oauth.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64')
+
+  return 'OAuth ' + Object.keys(oauth).sort().map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauth[k])}"`).join(', ')
+}
+
+async function postToTwitter(text) {
+  if (!process.env.TWITTER_API_KEY) {
+    return { success: false, error: 'Twitter not configured' }
+  }
+
+  try {
+    const tweetUrl = 'https://api.twitter.com/2/tweets'
+    const auth = twitterOAuth('POST', tweetUrl)
+
+    const result = await new Promise((resolve) => {
+      const req = https.request({
+        hostname: 'api.twitter.com',
+        path: '/2/tweets',
+        method: 'POST',
+        headers: {
+          'Authorization': auth,
+          'Content-Type': 'application/json'
+        }
+      }, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { resolve({}) }
+        })
+      })
+      req.on('error', () => resolve({}))
+      req.write(JSON.stringify({ text }))
+      req.end()
+    })
+
+    if (result.data && result.data.id) {
+      const tweetUrl = `https://twitter.com/evidenra/status/${result.data.id}`
+      console.log('[Twitter] Posted:', tweetUrl)
+      return { success: true, tweetUrl }
+    }
+    console.log('[Twitter] Failed:', JSON.stringify(result))
+    return { success: false, error: JSON.stringify(result) }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+}
+
+// ============================================
+// PLATFORM-SPECIFIC SCRIPTS
+// ============================================
+async function generatePlatformScripts(scriptKey, scriptText, youtubeUrl, videoUrls) {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (!anthropicKey) {
+    // Fallback ohne AI
+    return {
+      instagram: `📸 INSTAGRAM\n📹 ${videoUrls.instagram}\n\n${scriptText}\n\n#QualitativeResearch #PhD #AI`,
+      tiktok: `🎵 TIKTOK\n📹 ${videoUrls.tiktok}\n\n${scriptText}\n\n#PhDTok #ThesisTok`,
+      linkedin: `💼 LINKEDIN\n📹 ${videoUrls.youtube}\n\n${scriptText}\n\n#Research #Academia`,
+      facebook: `📘 FACEBOOK\n📹 ${videoUrls.youtube}\n\n${scriptText}`,
+      reddit: `🔴 REDDIT\nTitle: ${scriptKey}\n\n${scriptText}`
+    }
+  }
+
+  try {
+    const prompt = `Generate social media posts for EVIDENRA marketing. Script: "${scriptText}"
+YouTube: ${youtubeUrl}
+Instagram Video (1:1): ${videoUrls.instagram}
+TikTok Video (9:16): ${videoUrls.tiktok}
+
+Reply ONLY with JSON (no other text):
+{
+  "instagram": "📸 INSTAGRAM\\n📹 Video: [url]\\n\\n[3-5 catchy sentences with emojis, include video URL]\\n\\nLink in bio 👆\\n\\n#QualitativeResearch #PhD",
+  "tiktok": "🎵 TIKTOK\\n📹 Video: [url]\\n\\n[POV style hook, include video URL]\\n\\n#PhDTok #ThesisTok",
+  "linkedin": "💼 LINKEDIN\\n📹 Video: [url]\\n\\n[Professional post with bullets, include video URL]\\n\\n#Research",
+  "facebook": "📘 FACEBOOK\\n📹 Video: [url]\\n\\n[Friendly conversational post, include video URL]",
+  "reddit": "🔴 REDDIT\\nTitle: [catchy title]\\nSubreddits: r/QualitativeResearch, r/PhD\\n\\n[Authentic helpful post]"
+}`
+
+    const response = await new Promise((resolve) => {
+      const payload = JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01'
+        }
+      }, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { resolve({}) }
+        })
+      })
+      req.on('error', () => resolve({}))
+      req.write(payload)
+      req.end()
+    })
+
+    if (response.content && response.content[0] && response.content[0].text) {
+      const text = response.content[0].text.replace(/```json\n?|\n?```/g, '').trim()
+      return JSON.parse(text)
+    }
+  } catch (e) {
+    console.log('[Scripts] AI error:', e.message)
+  }
+
+  // Fallback
+  return {
+    instagram: `📸 INSTAGRAM\n📹 ${videoUrls.instagram}\n\n${scriptText}\n\n#QualitativeResearch #PhD`,
+    tiktok: `🎵 TIKTOK\n📹 ${videoUrls.tiktok}\n\n${scriptText}\n\n#PhDTok`,
+    linkedin: `💼 LINKEDIN\n📹 ${videoUrls.youtube}\n\n${scriptText}`,
+    facebook: `📘 FACEBOOK\n📹 ${videoUrls.youtube}\n\n${scriptText}`,
+    reddit: `🔴 REDDIT\nTitle: ${scriptKey}\n\n${scriptText}`
+  }
+}
+
 app.post('/daily-autopilot', async (req, res) => {
   const authHeader = req.headers.authorization
 
@@ -1619,29 +1889,112 @@ app.post('/daily-autopilot', async (req, res) => {
       }
     }
 
-    // Schritt 2: Notifications senden
-    const successCount = Object.values(results).filter(r => r.success).length
-    const duration = Math.round((Date.now() - startTime) / 1000 / 60)
+    // Schritt 2: YouTube Upload (16:9 Video)
+    let youtubeResult = { success: false }
+    if (results.youtube && results.youtube.success) {
+      console.log('[Autopilot] Uploading to YouTube...')
+      await sendTelegramNotification('📤 Lade zu YouTube hoch...')
 
-    let telegramMsg = `🎬 *EVIDENRA AUTOPILOT FERTIG!*\n\n`
-    telegramMsg += `📌 Script: ${daily.key}\n`
-    telegramMsg += `✅ Videos: ${successCount}/${formats.length}\n`
-    telegramMsg += `⏱ Dauer: ${duration} Minuten\n\n`
+      const today = new Date()
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+      const title = `EVIDENRA AI Research Tool | ${dayNames[today.getDay()]} Demo | 60% OFF`
+      const description = `EVIDENRA - AI-Powered Qualitative Research
 
-    for (const [format, result] of Object.entries(results)) {
-      if (result.success) {
-        telegramMsg += `📹 *${format.toUpperCase()}*: [Video](${result.url})\n`
-      } else {
-        telegramMsg += `❌ *${format.toUpperCase()}*: ${result.error}\n`
+${daily.script}
+
+✅ 7 AI Personas for reliable analysis
+✅ Automatic theme identification
+✅ Publication-ready exports
+
+60% OFF for Founding Members: https://evidenra.com/pricing
+
+#EVIDENRA #QualitativeResearch #AI #PhD`
+
+      youtubeResult = await uploadToYouTube(results.youtube.url, title, description)
+      if (youtubeResult.success) {
+        console.log('[Autopilot] YouTube uploaded:', youtubeResult.youtubeUrl)
       }
     }
 
-    await sendTelegramNotification(telegramMsg)
-    await sendDiscordNotification(telegramMsg.replace(/\*/g, '**').replace(/\[Video\]\((.*?)\)/g, '$1'))
+    // Schritt 3: Twitter Post
+    let twitterResult = { success: false }
+    const youtubeUrl = youtubeResult.youtubeUrl || results.youtube?.url || ''
+    if (youtubeUrl) {
+      console.log('[Autopilot] Posting to Twitter...')
+      const tweetText = `🚀 New EVIDENRA Demo!
+
+AI-powered qualitative research:
+✅ Automatic interview analysis
+✅ 7-Persona AKIH method
+
+60% OFF: evidenra.com/pricing
+
+📺 ${youtubeUrl}
+
+#QualitativeResearch #AI #PhD`
+
+      twitterResult = await postToTwitter(tweetText)
+    }
+
+    // Schritt 4: Platform-spezifische Scripts generieren
+    console.log('[Autopilot] Generating platform scripts...')
+    const videoUrls = {
+      youtube: results.youtube?.url || '',
+      tiktok: results.tiktok?.url || '',
+      instagram: results.instagram?.url || ''
+    }
+    const platformScripts = await generatePlatformScripts(daily.key, daily.script, youtubeUrl, videoUrls)
+
+    // Schritt 5: Finale Notifications senden
+    const successCount = Object.values(results).filter(r => r.success).length
+    const duration = Math.round((Date.now() - startTime) / 1000 / 60)
+
+    // Header Message
+    let headerMsg = `🎬 *EVIDENRA AUTOPILOT FERTIG!*\n\n`
+    headerMsg += `📌 Script: ${daily.key}\n`
+    headerMsg += `✅ Videos: ${successCount}/${formats.length}\n`
+    headerMsg += `⏱ Dauer: ${duration} Minuten\n\n`
+
+    if (youtubeResult.success) {
+      headerMsg += `📺 *YOUTUBE*: ${youtubeResult.youtubeUrl}\n`
+    }
+    if (twitterResult.success) {
+      headerMsg += `🐦 *TWITTER*: ${twitterResult.tweetUrl}\n`
+    }
+    headerMsg += `\n📹 *VIDEO DATEIEN:*\n`
+    for (const [format, result] of Object.entries(results)) {
+      if (result.success) {
+        headerMsg += `• ${format.toUpperCase()}: ${result.url}\n`
+      }
+    }
+
+    await sendTelegramNotification(headerMsg)
+    await sendDiscordNotification(headerMsg.replace(/\*/g, '**'))
+
+    // Platform Scripts als separate Nachrichten
+    await new Promise(r => setTimeout(r, 2000))
+    await sendTelegramNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.instagram}`)
+    await sendDiscordNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.instagram}`)
+
+    await new Promise(r => setTimeout(r, 2000))
+    await sendTelegramNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.tiktok}`)
+    await sendDiscordNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.tiktok}`)
+
+    await new Promise(r => setTimeout(r, 2000))
+    await sendTelegramNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.linkedin}`)
+    await sendDiscordNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.linkedin}`)
+
+    await new Promise(r => setTimeout(r, 2000))
+    await sendTelegramNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.facebook}`)
+    await sendDiscordNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.facebook}`)
+
+    await new Promise(r => setTimeout(r, 2000))
+    await sendTelegramNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.reddit}`)
+    await sendDiscordNotification(`━━━━━━━━━━━━━━━━━━━━\n${platformScripts.reddit}`)
 
     console.log('[Autopilot] === AUTOPILOT COMPLETE ===')
     console.log(`[Autopilot] Duration: ${duration} minutes`)
-    console.log(`[Autopilot] Success: ${successCount}/${formats.length}`)
+    console.log(`[Autopilot] Videos: ${successCount}/${formats.length}, YouTube: ${youtubeResult.success}, Twitter: ${twitterResult.success}`)
 
   } catch (e) {
     console.error('[Autopilot] Error:', e.message)
