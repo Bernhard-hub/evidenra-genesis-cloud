@@ -61,8 +61,8 @@ const AVATARS_MALE = [
   { id: 'Adrian_public_20240312', name: 'Adrian', gender: 'male' }
 ]
 
-// Alle Avatare - Custom Avatar wird bevorzugt!
-const AVATARS = [CUSTOM_AVATAR, ...AVATARS_FEMALE, ...AVATARS_MALE]
+// Alle Avatare - NUR Stock Avatare, kein persönlicher Custom Avatar
+const AVATARS = [...AVATARS_FEMALE, ...AVATARS_MALE]
 
 // Avatar-Konfiguration pro Format
 const AVATAR_CONFIG = {
@@ -481,8 +481,8 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format 
     lang = daily.lang
   }
 
-  // IMMER Custom Avatar verwenden (erster in der Liste)
-  const avatar = CUSTOM_AVATAR
+  // Standard HeyGen Avatare verwenden (rotiert)
+  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
 
   // Greenscreen für Compositing, sonst normale Hintergrundfarbe
   const background = useGreenscreen ? GREENSCREEN_BACKGROUND : getRandomBackground()
@@ -696,9 +696,11 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
     lang = daily.lang
   }
 
-  // IMMER Custom Avatar verwenden
-  const avatar = CUSTOM_AVATAR
-  const voice = VOICES[avatar.gender] || VOICES.male
+  // Standard HeyGen Avatare verwenden (NICHT den persönlichen Custom Avatar)
+  // Rotiert durch die verfügbaren Stock-Avatare
+  const allStockAvatars = [...AVATARS_FEMALE, ...AVATARS_MALE]
+  const avatar = allStockAvatars[Math.floor(Math.random() * allStockAvatars.length)]
+  const voice = VOICES[avatar.gender] || VOICES.female
 
   // Format-spezifische Avatar-Konfiguration für Video-Background
   // Rechts unten positioniert, damit Website sichtbar bleibt
@@ -778,6 +780,176 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
     req.write(payload)
     req.end()
   })
+}
+
+// ============================================
+// WEBSITE VIDEO MIT TTS (KEIN AVATAR!)
+// Erstellt Video nur mit Website-Recording + Voiceover
+// ============================================
+async function createWebsiteVideoWithTTS(topic = 'auto', format = 'youtube') {
+  const formatConfig = VIDEO_FORMATS[format] || VIDEO_FORMATS.youtube
+
+  // Script auswählen
+  let scriptKey, script, lang
+  if (topic === 'auto') {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  } else if (SCRIPTS[topic]) {
+    scriptKey = topic
+    script = SCRIPTS[topic]
+    lang = 'en'
+  } else if (SCRIPTS_DE[topic]) {
+    scriptKey = topic
+    script = SCRIPTS_DE[topic]
+    lang = 'de'
+  } else {
+    const daily = getDailyScript()
+    scriptKey = daily.key
+    script = daily.script
+    lang = daily.lang
+  }
+
+  console.log(`[Genesis] Creating WEBSITE-ONLY video (NO AVATAR):`)
+  console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
+  console.log(`  - Format: ${formatConfig.name} (${formatConfig.aspect})`)
+  console.log(`  - Mode: Website Recording + TTS Voiceover`)
+
+  try {
+    // Schritt 1: Website aufnehmen
+    console.log(`[Genesis] Step 1: Recording website...`)
+    const recorder = new ScreenRecorder({ outputDir: TEMP_DIR })
+    const demoType = getRandomDemoType()
+    const recordingResult = await recorder.record(demoType, format)
+
+    if (!recordingResult.success) {
+      return { success: false, error: `Recording failed: ${recordingResult.error}` }
+    }
+
+    const webmPath = recordingResult.path
+
+    // Schritt 2: WebM zu MP4 konvertieren
+    console.log(`[Genesis] Step 2: Converting to MP4...`)
+    const mp4Path = webmPath.replace('.webm', '.mp4')
+    execSync(`ffmpeg -y -i "${webmPath}" -c:v libx264 -preset fast -crf 23 -an "${mp4Path}"`, { stdio: 'inherit' })
+
+    // Schritt 3: TTS Audio generieren
+    console.log(`[Genesis] Step 3: Generating TTS audio...`)
+    const audioPath = path.join(TEMP_DIR, `tts_${Date.now()}.mp3`)
+    const ttsResult = await generateTTSAudio(script, lang, audioPath)
+
+    if (!ttsResult.success) {
+      // Fallback: Video ohne Audio
+      console.log(`[Genesis] TTS failed, uploading video without audio`)
+      const finalPath = mp4Path
+      const filename = `no-avatar-${format}-${Date.now()}.mp4`
+      const buffer = fs.readFileSync(finalPath)
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(filename, buffer, { contentType: 'video/mp4', upsert: true })
+
+      if (uploadError) {
+        return { success: false, error: uploadError.message }
+      }
+
+      const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
+      return {
+        success: true,
+        url: urlData.publicUrl,
+        script: scriptKey,
+        format: format,
+        noAudio: true
+      }
+    }
+
+    // Schritt 4: Video + Audio mergen
+    console.log(`[Genesis] Step 4: Merging video + audio...`)
+    const finalPath = path.join(TEMP_DIR, `final_${format}_${Date.now()}.mp4`)
+
+    // Audio-Länge ermitteln und Video entsprechend anpassen
+    execSync(`ffmpeg -y -i "${mp4Path}" -i "${audioPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -shortest "${finalPath}"`, { stdio: 'inherit' })
+
+    // Schritt 5: Zu Supabase hochladen
+    console.log(`[Genesis] Step 5: Uploading to Supabase...`)
+    const filename = `no-avatar-${format}-${Date.now()}.mp4`
+    const buffer = fs.readFileSync(finalPath)
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('videos')
+      .upload(filename, buffer, { contentType: 'video/mp4', upsert: true })
+
+    if (uploadError) {
+      return { success: false, error: uploadError.message }
+    }
+
+    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
+
+    // Cleanup
+    try {
+      fs.unlinkSync(webmPath)
+      fs.unlinkSync(mp4Path)
+      fs.unlinkSync(audioPath)
+      fs.unlinkSync(finalPath)
+    } catch (e) { /* ignore cleanup errors */ }
+
+    return {
+      success: true,
+      url: urlData.publicUrl,
+      script: scriptKey,
+      format: format,
+      lang: lang
+    }
+
+  } catch (error) {
+    console.error(`[Genesis] Website video creation failed:`, error)
+    return { success: false, error: error.message }
+  }
+}
+
+// TTS Audio generieren (OpenAI oder ElevenLabs)
+async function generateTTSAudio(text, lang = 'en', outputPath) {
+  console.log(`[Genesis] Generating TTS audio (${lang})...`)
+
+  // OpenAI TTS (bevorzugt)
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    try {
+      const voice = lang === 'de' ? 'nova' : 'onyx' // nova für DE, onyx für EN
+      const response = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'tts-1',
+          voice: voice,
+          input: text,
+          response_format: 'mp3'
+        })
+      })
+
+      if (response.ok) {
+        const audioBuffer = await response.arrayBuffer()
+        fs.writeFileSync(outputPath, Buffer.from(audioBuffer))
+        console.log(`[Genesis] TTS audio generated: ${outputPath}`)
+        return { success: true, path: outputPath }
+      }
+    } catch (e) {
+      console.log(`[Genesis] OpenAI TTS failed: ${e.message}`)
+    }
+  }
+
+  // Fallback: HeyGen TTS (wenn vorhanden)
+  const heygenKey = process.env.HEYGEN_API_KEY
+  if (heygenKey) {
+    // HeyGen hat keinen reinen TTS-Endpoint, nur mit Avatar
+    // Also kein Fallback hier
+  }
+
+  return { success: false, error: 'No TTS service available' }
 }
 
 // ============================================
