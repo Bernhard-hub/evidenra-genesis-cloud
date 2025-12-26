@@ -43,22 +43,50 @@ const supabase = createClient(
 // ============================================
 // AVATARE MIT PASSENDEN STIMMEN
 // ============================================
-// MODERNE Avatare - expressive Versionen (jung & professionell)
+// EIGENER AVATAR - "Team" (dein Custom Avatar auf HeyGen)
+const CUSTOM_AVATAR = {
+  id: 'd90309df9f80462ba214a43ca9f9398f',
+  name: 'Team (Custom)',
+  gender: 'male'  // Für Stimme - anpassen falls weiblich
+}
+
+// Fallback Avatare (falls Custom nicht verfügbar)
 const AVATARS_FEMALE = [
   { id: 'Annie_expressive_public', name: 'Annie', gender: 'female' },
-  { id: 'Annie_expressive2_public', name: 'Annie Style 2', gender: 'female' },
-  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey', gender: 'female' },
-  { id: 'Anna_public_3_20240108', name: 'Anna', gender: 'female' }
+  { id: 'Aubrey_expressive_2024112701', name: 'Aubrey', gender: 'female' }
 ]
 
 const AVATARS_MALE = [
   { id: 'Albert_public_1', name: 'Albert', gender: 'male' },
-  { id: 'Albert_public_2', name: 'Albert Style 2', gender: 'male' },
   { id: 'Adrian_public_20240312', name: 'Adrian', gender: 'male' }
 ]
 
-// Alle Avatare kombiniert
-const AVATARS = [...AVATARS_FEMALE, ...AVATARS_MALE]
+// Alle Avatare - Custom Avatar wird bevorzugt!
+const AVATARS = [CUSTOM_AVATAR, ...AVATARS_FEMALE, ...AVATARS_MALE]
+
+// Avatar-Konfiguration pro Format
+const AVATAR_CONFIG = {
+  'youtube': {
+    scale: 0.85,
+    offset: { x: 0, y: 0 },
+    position: 'center'  // Mittig
+  },
+  'tiktok': {
+    scale: 0.6,  // Kleiner für Portrait
+    offset: { x: 0, y: 0.2 },  // Leicht nach unten
+    position: 'bottom-center'
+  },
+  'instagram': {
+    scale: 0.7,  // Mittel für Quadrat
+    offset: { x: 0, y: 0.15 },  // Leicht nach unten
+    position: 'bottom-center'
+  },
+  'twitter': {
+    scale: 0.85,
+    offset: { x: 0, y: 0 },
+    position: 'center'
+  }
+}
 
 // Stimmen passend zum Geschlecht (verified from HeyGen API)
 const VOICES = {
@@ -453,20 +481,24 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format 
     lang = daily.lang
   }
 
-  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
+  // IMMER Custom Avatar verwenden (erster in der Liste)
+  const avatar = CUSTOM_AVATAR
 
   // Greenscreen für Compositing, sonst normale Hintergrundfarbe
   const background = useGreenscreen ? GREENSCREEN_BACKGROUND : getRandomBackground()
 
   // WICHTIG: Stimme passend zum Avatar-Geschlecht UND Sprache!
-  // Deutsche Stimmen für DE, englische für EN
-  const voice = VOICES[avatar.gender] || VOICES.female
+  const voice = VOICES[avatar.gender] || VOICES.male
+
+  // Format-spezifische Avatar-Konfiguration
+  const avatarCfg = AVATAR_CONFIG[format] || AVATAR_CONFIG.youtube
 
   console.log(`[Genesis] Creating video:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
   console.log(`  - Voice: ${avatar.gender}`)
   console.log(`  - Format: ${formatConfig.name} (${formatConfig.aspect})`)
+  console.log(`  - Avatar Scale: ${avatarCfg.scale}, Offset: x=${avatarCfg.offset.x}, y=${avatarCfg.offset.y}`)
   console.log(`  - Background: ${useGreenscreen ? 'GREENSCREEN' : background.value}`)
 
   const payload = JSON.stringify({
@@ -475,7 +507,8 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format 
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: format === 'tiktok' ? 1.0 : 0.85  // Größer für Portrait
+        scale: avatarCfg.scale,
+        offset: avatarCfg.offset
       },
       voice: {
         type: 'text',
@@ -663,18 +696,24 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
     lang = daily.lang
   }
 
-  const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)]
-  const voice = VOICES[avatar.gender] || VOICES.female
+  // IMMER Custom Avatar verwenden
+  const avatar = CUSTOM_AVATAR
+  const voice = VOICES[avatar.gender] || VOICES.male
 
-  // Avatar-Position: Rechts unten (wie Original v3.0)
-  const avatarScale = 0.45
-  const avatarOffsetX = 0.35  // Nach rechts
-  const avatarOffsetY = 0.35  // Nach unten (Original-Position)
+  // Format-spezifische Avatar-Konfiguration für Video-Background
+  // Rechts unten positioniert, damit Website sichtbar bleibt
+  const avatarCfg = {
+    'youtube': { scale: 0.45, offset: { x: 0.35, y: 0.35 } },
+    'tiktok': { scale: 0.35, offset: { x: 0, y: 0.3 } },  // Mittig unten
+    'instagram': { scale: 0.4, offset: { x: 0.25, y: 0.25 } },
+    'twitter': { scale: 0.45, offset: { x: 0.35, y: 0.35 } }
+  }[format] || { scale: 0.45, offset: { x: 0.35, y: 0.35 } }
 
   console.log(`[Genesis] Creating video WITH VIDEO URL BACKGROUND:`)
   console.log(`  - Script: ${scriptKey} (${lang.toUpperCase()})`)
   console.log(`  - Avatar: ${avatar.name} (${avatar.gender})`)
   console.log(`  - Format: ${formatConfig.name} (${formatConfig.aspect})`)
+  console.log(`  - Avatar: scale=${avatarCfg.scale}, offset=(${avatarCfg.offset.x}, ${avatarCfg.offset.y})`)
   console.log(`  - Background: ${videoUrl}`)
 
   const payload = JSON.stringify({
@@ -683,11 +722,8 @@ async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format 
         type: 'avatar',
         avatar_id: avatar.id,
         avatar_style: 'normal',
-        scale: avatarScale,
-        offset: {
-          x: avatarOffsetX,
-          y: avatarOffsetY
-        }
+        scale: avatarCfg.scale,
+        offset: avatarCfg.offset
       },
       voice: {
         type: 'text',
