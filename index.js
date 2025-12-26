@@ -1839,27 +1839,105 @@ app.post('/daily-autopilot', async (req, res) => {
 
     const formats = ['youtube', 'tiktok', 'instagram']
     const results = {}
+    const demoType = getDailyDemoType ? getDailyDemoType() : 'homepage'
+
+    // Viewport-Größen für verschiedene Formate
+    const FORMAT_VIEWPORTS = {
+      'youtube': { width: 1280, height: 720 },
+      'tiktok': { width: 720, height: 1280 },
+      'instagram': { width: 720, height: 720 }
+    }
 
     for (const format of formats) {
-      console.log(`[Autopilot] Creating ${format} video...`)
+      console.log(`[Autopilot] === Creating ${format} video WITH WEBSITE BACKGROUND ===`)
       try {
-        const heygenResult = await createHeyGenVideo(daily.key, false, format)
+        let heygenAssetUrl
+        let bgFilename = null
+
+        // Website aufnehmen
+        const viewport = FORMAT_VIEWPORTS[format] || FORMAT_VIEWPORTS.youtube
+        console.log(`[Autopilot] Recording website at ${viewport.width}x${viewport.height}...`)
+
+        const recorder = new ScreenRecorder({
+          outputDir: TEMP_DIR,
+          width: viewport.width,
+          height: viewport.height
+        })
+
+        let backgroundPath
+        try {
+          backgroundPath = await recorder.record(demoType)
+          console.log(`[Autopilot] Background recorded: ${backgroundPath}`)
+        } catch (recErr) {
+          console.error(`[Autopilot] Recording failed for ${format}:`, recErr.message)
+          results[format] = { success: false, error: `Recording failed: ${recErr.message}` }
+          continue
+        }
+
+        // WebM zu MP4 konvertieren
+        const mp4Path = backgroundPath.replace('.webm', '.mp4')
+        try {
+          execSync(`ffmpeg -y -i "${backgroundPath}" -c:v libx264 -preset fast -crf 23 "${mp4Path}"`, {
+            stdio: 'pipe',
+            timeout: 120000
+          })
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+          backgroundPath = mp4Path
+        } catch (convErr) {
+          console.log(`[Autopilot] Conversion skipped, using original`)
+        }
+
+        // Background zu Supabase hochladen
+        console.log(`[Autopilot] Uploading background to Supabase...`)
+        bgFilename = `autopilot-bg-${format}-${Date.now()}.mp4`
+
+        try {
+          const bgBuffer = fs.readFileSync(backgroundPath)
+          const { error: uploadError } = await supabase.storage
+            .from('videos')
+            .upload(bgFilename, bgBuffer, { contentType: 'video/mp4', upsert: true })
+
+          if (uploadError) throw new Error(uploadError.message)
+
+          const { data: urlData } = supabase.storage.from('videos').getPublicUrl(bgFilename)
+          heygenAssetUrl = urlData.publicUrl
+          console.log(`[Autopilot] Background URL: ${heygenAssetUrl}`)
+
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+        } catch (uploadErr) {
+          console.error(`[Autopilot] Upload failed:`, uploadErr.message)
+          if (fs.existsSync(backgroundPath)) fs.unlinkSync(backgroundPath)
+          results[format] = { success: false, error: uploadErr.message }
+          continue
+        }
+
+        // HeyGen Video MIT Background erstellen
+        console.log(`[Autopilot] Creating HeyGen video with website background...`)
+        const heygenResult = await createHeyGenVideoWithBackground(daily.key, heygenAssetUrl, format)
+
         if (!heygenResult.success) {
           results[format] = { success: false, error: heygenResult.error }
+          if (bgFilename) await supabase.storage.from('videos').remove([bgFilename])
           continue
         }
 
         // Auf HeyGen warten
+        console.log(`[Autopilot] Waiting for HeyGen to render ${format}...`)
         let status = { status: 'processing' }
         let attempts = 0
         while (status.status === 'processing' && attempts < 80) {
           await new Promise(r => setTimeout(r, 5000))
           status = await checkHeyGenStatus(heygenResult.videoId)
+          console.log(`[Autopilot] ${format}: ${status.status} (${attempts + 1}/80)`)
           attempts++
         }
 
+        // Background löschen (nicht mehr benötigt)
+        if (bgFilename) await supabase.storage.from('videos').remove([bgFilename])
+
         if (status.status === 'completed' && status.videoUrl) {
-          // Video herunterladen und zu Supabase hochladen
+          // Fertiges Video herunterladen und zu Supabase hochladen
+          console.log(`[Autopilot] Downloading final ${format} video...`)
           const videoBuffer = await new Promise((resolve, reject) => {
             https.get(status.videoUrl, (res) => {
               const chunks = []
@@ -1877,7 +1955,7 @@ app.post('/daily-autopilot', async (req, res) => {
           if (!error) {
             const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
             results[format] = { success: true, url: urlData.publicUrl }
-            console.log(`[Autopilot] ${format} complete: ${urlData.publicUrl}`)
+            console.log(`[Autopilot] ✅ ${format} complete: ${urlData.publicUrl}`)
           } else {
             results[format] = { success: false, error: error.message }
           }
