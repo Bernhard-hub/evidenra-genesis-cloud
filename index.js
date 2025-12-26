@@ -1449,6 +1449,171 @@ app.get('/formats', (req, res) => {
 })
 
 // ============================================
+// DAILY AUTOPILOT - Vollautomatisches Marketing
+// ============================================
+// Telegram + Discord Notifications
+async function sendTelegramNotification(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID || '7804985180'
+  if (!token) return console.log('[Autopilot] No TELEGRAM_BOT_TOKEN')
+
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true
+    })
+
+    const req = https.request({
+      hostname: 'api.telegram.org',
+      path: `/bot${token}/sendMessage`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => resolve(true))
+    })
+    req.on('error', () => resolve(false))
+    req.write(payload)
+    req.end()
+  })
+}
+
+async function sendDiscordNotification(message) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL
+  if (!webhookUrl) return console.log('[Autopilot] No DISCORD_WEBHOOK_URL')
+
+  const url = new URL(webhookUrl)
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({
+      content: message,
+      username: 'EVIDENRA Autopilot'
+    })
+
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, (res) => {
+      res.on('data', () => {})
+      res.on('end', () => resolve(true))
+    })
+    req.on('error', () => resolve(false))
+    req.write(payload)
+    req.end()
+  })
+}
+
+app.post('/daily-autopilot', async (req, res) => {
+  const authHeader = req.headers.authorization
+
+  if (authHeader !== `Bearer ${process.env.GENESIS_API_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  console.log('[Autopilot] === DAILY AUTOPILOT STARTED ===')
+  const startTime = Date.now()
+  const daily = getDailyScript()
+
+  // Sofort antworten, dann im Hintergrund weiterarbeiten
+  res.json({
+    success: true,
+    message: 'Autopilot started',
+    script: daily.key,
+    lang: daily.lang
+  })
+
+  try {
+    // Schritt 1: Multi-Format Videos erstellen
+    console.log('[Autopilot] Creating multi-format videos...')
+    await sendTelegramNotification(`🎬 *AUTOPILOT GESTARTET*\n\nScript: ${daily.key}\nSprache: ${daily.lang.toUpperCase()}\n\n⏳ Erstelle Videos...`)
+
+    const formats = ['youtube', 'tiktok', 'instagram']
+    const results = {}
+
+    for (const format of formats) {
+      console.log(`[Autopilot] Creating ${format} video...`)
+      try {
+        const heygenResult = await createHeyGenVideo(daily.key, false, format)
+        if (!heygenResult.success) {
+          results[format] = { success: false, error: heygenResult.error }
+          continue
+        }
+
+        // Auf HeyGen warten
+        let status = { status: 'processing' }
+        let attempts = 0
+        while (status.status === 'processing' && attempts < 80) {
+          await new Promise(r => setTimeout(r, 5000))
+          status = await checkHeyGenStatus(heygenResult.videoId)
+          attempts++
+        }
+
+        if (status.status === 'completed' && status.videoUrl) {
+          // Video herunterladen und zu Supabase hochladen
+          const videoBuffer = await new Promise((resolve, reject) => {
+            https.get(status.videoUrl, (res) => {
+              const chunks = []
+              res.on('data', chunk => chunks.push(chunk))
+              res.on('end', () => resolve(Buffer.concat(chunks)))
+              res.on('error', reject)
+            }).on('error', reject)
+          })
+
+          const filename = `autopilot-${format}-${daily.key}-${Date.now()}.mp4`
+          const { error } = await supabase.storage
+            .from('videos')
+            .upload(filename, videoBuffer, { contentType: 'video/mp4', upsert: true })
+
+          if (!error) {
+            const { data: urlData } = supabase.storage.from('videos').getPublicUrl(filename)
+            results[format] = { success: true, url: urlData.publicUrl }
+            console.log(`[Autopilot] ${format} complete: ${urlData.publicUrl}`)
+          } else {
+            results[format] = { success: false, error: error.message }
+          }
+        } else {
+          results[format] = { success: false, error: status.error || 'Timeout' }
+        }
+      } catch (e) {
+        results[format] = { success: false, error: e.message }
+      }
+    }
+
+    // Schritt 2: Notifications senden
+    const successCount = Object.values(results).filter(r => r.success).length
+    const duration = Math.round((Date.now() - startTime) / 1000 / 60)
+
+    let telegramMsg = `🎬 *EVIDENRA AUTOPILOT FERTIG!*\n\n`
+    telegramMsg += `📌 Script: ${daily.key}\n`
+    telegramMsg += `✅ Videos: ${successCount}/${formats.length}\n`
+    telegramMsg += `⏱ Dauer: ${duration} Minuten\n\n`
+
+    for (const [format, result] of Object.entries(results)) {
+      if (result.success) {
+        telegramMsg += `📹 *${format.toUpperCase()}*: [Video](${result.url})\n`
+      } else {
+        telegramMsg += `❌ *${format.toUpperCase()}*: ${result.error}\n`
+      }
+    }
+
+    await sendTelegramNotification(telegramMsg)
+    await sendDiscordNotification(telegramMsg.replace(/\*/g, '**').replace(/\[Video\]\((.*?)\)/g, '$1'))
+
+    console.log('[Autopilot] === AUTOPILOT COMPLETE ===')
+    console.log(`[Autopilot] Duration: ${duration} minutes`)
+    console.log(`[Autopilot] Success: ${successCount}/${formats.length}`)
+
+  } catch (e) {
+    console.error('[Autopilot] Error:', e.message)
+    await sendTelegramNotification(`❌ *AUTOPILOT FEHLER*\n\n${e.message}`)
+  }
+})
+
+// ============================================
 // START SERVER v3.4.0
 // ============================================
 app.listen(PORT, () => {
