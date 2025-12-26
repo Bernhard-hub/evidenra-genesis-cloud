@@ -1,0 +1,18 @@
+# Railway Configuration
+# Genesis Cloud - EVIDENRA Video Generation
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Cron Job - Daily Autopilot um 08:00 UTC
+# Ruft den /daily-autopilot Endpoint auf
+[[crons]]
+schedule = "0 8 * * *"
+endpoint = "/daily-autopilot"
