@@ -1694,7 +1694,7 @@ async function sendTelegramNotification(message) {
 }
 
 async function sendDiscordNotification(message) {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL
+  const webhookUrl = (process.env.DISCORD_WEBHOOK_URL || '').trim()
   if (!webhookUrl) return console.log('[Autopilot] No DISCORD_WEBHOOK_URL')
 
   const url = new URL(webhookUrl)
@@ -1723,9 +1723,9 @@ async function sendDiscordNotification(message) {
 // YOUTUBE UPLOAD
 // ============================================
 async function uploadToYouTube(videoUrl, title, description) {
-  const clientId = process.env.YOUTUBE_CLIENT_ID
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET
-  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN
+  const clientId = (process.env.YOUTUBE_CLIENT_ID || '').trim()
+  const clientSecret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim()
+  const refreshToken = (process.env.YOUTUBE_REFRESH_TOKEN || '').trim()
 
   if (!clientId || !refreshToken) {
     console.log('[YouTube] Missing credentials')
@@ -1850,11 +1850,11 @@ const crypto = require('crypto')
 
 function twitterOAuth(method, url, params = {}) {
   const oauth = {
-    oauth_consumer_key: process.env.TWITTER_API_KEY,
+    oauth_consumer_key: (process.env.TWITTER_API_KEY || '').trim(),
     oauth_nonce: crypto.randomBytes(16).toString('hex'),
     oauth_signature_method: 'HMAC-SHA1',
     oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_token: process.env.TWITTER_ACCESS_TOKEN,
+    oauth_token: (process.env.TWITTER_ACCESS_TOKEN || '').trim(),
     oauth_version: '1.0'
   }
 
@@ -1864,7 +1864,7 @@ function twitterOAuth(method, url, params = {}) {
   ).join('&')
 
   const baseString = [method, encodeURIComponent(url), encodeURIComponent(sortedParams)].join('&')
-  const signingKey = `${encodeURIComponent(process.env.TWITTER_API_SECRET)}&${encodeURIComponent(process.env.TWITTER_ACCESS_TOKEN_SECRET)}`
+  const signingKey = `${encodeURIComponent((process.env.TWITTER_API_SECRET || '').trim())}&${encodeURIComponent((process.env.TWITTER_ACCESS_TOKEN_SECRET || '').trim())}`
   oauth.oauth_signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64')
 
   return 'OAuth ' + Object.keys(oauth).sort().map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauth[k])}"`).join(', ')
@@ -1916,7 +1916,7 @@ async function postToTwitter(text) {
 // PLATFORM-SPECIFIC SCRIPTS
 // ============================================
 async function generatePlatformScripts(scriptKey, scriptText, youtubeUrl, videoUrls) {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  const anthropicKey = (process.env.ANTHROPIC_API_KEY || '').trim()
   if (!anthropicKey) {
     // Fallback ohne AI
     return {
