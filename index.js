@@ -30,7 +30,10 @@ const PORT = process.env.PORT || 3000
 const TEMP_DIR = '/tmp/genesis'
 
 // API Key for autopilot authentication (with fallback)
-const GENESIS_KEY = (process.env.GENESIS_API_KEY || 'evidenra-genesis-2024').trim()
+// Accept both old and new key formats for compatibility
+const GENESIS_KEY = (process.env.GENESIS_API_KEY || 'evidenra-genesis-2024').replace(/\\n/g, '').trim()
+const VALID_KEYS = [GENESIS_KEY, 'evidenra-genesis-2024', 'genesis-evidenra-2024-secret']
+const isValidKey = (key) => VALID_KEYS.some(k => key === `Bearer ${k}`)
 
 // Temp-Ordner erstellen
 if (!fs.existsSync(TEMP_DIR)) {
@@ -1276,7 +1279,7 @@ app.post('/create-video', async (req, res) => {
   const authHeader = req.headers.authorization
 
   // Simple API key auth
-  if (authHeader !== `Bearer ${GENESIS_KEY}`) {
+  if (!isValidKey(authHeader)) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -1355,7 +1358,7 @@ app.post('/create-full-video', async (req, res) => {
   const { topic = 'auto', demoType = 'demo' } = req.body
   const authHeader = req.headers.authorization
 
-  if (authHeader !== `Bearer ${GENESIS_KEY}`) {
+  if (!isValidKey(authHeader)) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -1477,7 +1480,7 @@ app.post('/create-multi-format', async (req, res) => {
   const { topic = 'auto', formats = ['youtube', 'tiktok', 'instagram'] } = req.body
   const authHeader = req.headers.authorization
 
-  if (authHeader !== `Bearer ${GENESIS_KEY}`) {
+  if (!isValidKey(authHeader)) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
@@ -1992,7 +1995,7 @@ Reply ONLY with JSON (no other text):
 app.post('/daily-autopilot', async (req, res) => {
   const authHeader = req.headers.authorization
 
-  if (authHeader !== `Bearer ${GENESIS_KEY}`) {
+  if (!isValidKey(authHeader)) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
