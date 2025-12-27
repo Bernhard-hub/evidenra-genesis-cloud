@@ -34,10 +34,10 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true })
 }
 
-// Supabase Client
+// Supabase Client - trim API keys to remove any whitespace/newlines
 const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  (process.env.SUPABASE_URL || '').trim(),
+  (process.env.SUPABASE_SERVICE_KEY || '').trim()
 )
 
 // ============================================
@@ -355,7 +355,7 @@ function getRandomBackground() {
 
 // WebM Video mit transparentem Hintergrund erstellen (für Compositing!)
 async function createHeyGenWebM(topic = 'auto') {
-  const apiKey = process.env.HEYGEN_API_KEY
+  const apiKey = (process.env.HEYGEN_API_KEY || '').trim()
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
@@ -451,7 +451,7 @@ const VIDEO_FORMATS = {
 }
 
 async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format = 'youtube') {
-  const apiKey = process.env.HEYGEN_API_KEY
+  const apiKey = (process.env.HEYGEN_API_KEY || '').trim()
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
@@ -560,7 +560,7 @@ async function createHeyGenVideo(topic = 'auto', useGreenscreen = false, format 
 }
 
 async function checkHeyGenStatus(videoId) {
-  const apiKey = process.env.HEYGEN_API_KEY
+  const apiKey = (process.env.HEYGEN_API_KEY || '').trim()
 
   return new Promise((resolve) => {
     const req = https.request({
@@ -617,7 +617,7 @@ async function waitForVideo(videoId, maxWaitMs = 600000) {
 // HEYGEN ASSET UPLOAD (für Video-Backgrounds)
 // ============================================
 async function uploadVideoToHeyGen(videoPath) {
-  const apiKey = process.env.HEYGEN_API_KEY
+  const apiKey = (process.env.HEYGEN_API_KEY || '').trim()
   if (!apiKey) {
     throw new Error('HEYGEN_API_KEY not configured')
   }
@@ -666,7 +666,7 @@ async function uploadVideoToHeyGen(videoPath) {
 // Avatar Video MIT Video-URL als Background erstellen (kein Chromakey nötig!)
 // format: 'youtube', 'tiktok', 'instagram', 'twitter'
 async function createHeyGenVideoWithBackground(topic = 'auto', videoUrl, format = 'youtube') {
-  const apiKey = process.env.HEYGEN_API_KEY
+  const apiKey = (process.env.HEYGEN_API_KEY || '').trim()
   if (!apiKey) {
     return { success: false, error: 'HEYGEN_API_KEY not configured' }
   }
@@ -913,7 +913,7 @@ async function generateTTSAudio(text, lang = 'en', outputPath) {
   console.log(`[Genesis] Generating TTS audio (${lang})...`)
 
   // OpenAI TTS (bevorzugt)
-  const openaiKey = process.env.OPENAI_API_KEY
+  const openaiKey = (process.env.OPENAI_API_KEY || '').trim()
   if (openaiKey) {
     try {
       const voice = lang === 'de' ? 'nova' : 'onyx' // nova für DE, onyx für EN
@@ -943,7 +943,7 @@ async function generateTTSAudio(text, lang = 'en', outputPath) {
   }
 
   // Fallback: HeyGen TTS (wenn vorhanden)
-  const heygenKey = process.env.HEYGEN_API_KEY
+  const heygenKey = (process.env.HEYGEN_API_KEY || '').trim()
   if (heygenKey) {
     // HeyGen hat keinen reinen TTS-Endpoint, nur mit Avatar
     // Also kein Fallback hier
@@ -1661,8 +1661,8 @@ app.get('/formats', (req, res) => {
 // ============================================
 // Telegram + Discord Notifications
 async function sendTelegramNotification(message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN
-  const chatId = process.env.TELEGRAM_CHAT_ID || '7804985180'
+  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim()
+  const chatId = (process.env.TELEGRAM_CHAT_ID || '7804985180').trim()
   if (!token) return console.log('[Autopilot] No TELEGRAM_BOT_TOKEN')
 
   return new Promise((resolve) => {
