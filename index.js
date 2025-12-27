@@ -1250,7 +1250,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'EVIDENRA Genesis Cloud',
-    version: '3.5.0',  // Pre-recorded app demos + website rotation
+    version: '3.6.0',  // Added API key trim + fallback auth
     todaysScript: getDailyScript(),
     todaysDemoType: getDailyDemoType(),
     totalScripts: SCRIPT_KEYS.length
